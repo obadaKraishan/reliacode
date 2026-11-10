@@ -36,3 +36,20 @@ Five lines per session: did / decided / next / open questions / usage notes.
 - **Next:** make the repo public, then turn on branch protection and a PR workflow.
 - **Open questions:** none.
 - **Usage notes:** local only; no model calls.
+
+## 2026-11-10 · Going public
+- **Did:**
+  - Scanned the full history for secrets, emails, local paths and private notes before going
+    public. No secrets were found; an early CLAUDE.md held local paths and private workflow notes,
+    and it was replaced before the repo went public.
+  - The repository was made public on 2026-11-10.
+  - Set the repo description and topics, protected `main` (the four CI checks are required,
+    including for admins; no force pushes or deletions), and added a Workflow section to
+    CONTRIBUTING through the first pull request.
+- **Decided:**
+  - No required reviewers, since there is one maintainer.
+  - Pull requests are merged with merge commits, never squashed.
+- **Next:** S2, the backend adapter and cost ledger (#1, #2), each on its own branch and pull
+  request.
+- **Open questions:** none.
+- **Usage notes:** local only; no model calls.
