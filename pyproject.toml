@@ -1,0 +1,74 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "reliacode"
+version = "0.1.0.dev0"
+description = "Validated LLM content analysis: YAML codebooks, reliability with confidence intervals, and transparent methods reporting."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [{ name = "Obada Kraishan" }]
+keywords = [
+    "content-analysis",
+    "codebook",
+    "llm",
+    "intercoder-reliability",
+    "krippendorff-alpha",
+    "communication-research",
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Sociology",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pydantic>=2.6",
+    "pyyaml>=6.0.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/obadaKraishan/reliacode"
+Repository = "https://github.com/obadaKraishan/reliacode"
+Issues = "https://github.com/obadaKraishan/reliacode/issues"
+Changelog = "https://github.com/obadaKraishan/reliacode/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/reliacode"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.coverage.run]
+source = ["reliacode"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    "ruff>=0.6",
+]

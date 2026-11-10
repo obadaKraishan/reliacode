@@ -1,0 +1,36 @@
+# Session prompts and reports are kept outside this repository.
+prompts/
+reports/
+
+# Data is never committed; case studies ship loaders, not raw text.
+data/
+
+# Secrets
+*.env
+.env
+.env.*
+!.env.example
+kaggle.json
+access_token
+secrets/
+
+# Publishing gate: created by the maintainer only, never committed
+RELEASE_APPROVED
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+.coverage
+coverage.xml
+htmlcov/
+
+# OS and editors
+.DS_Store
+.idea/
+.vscode/
