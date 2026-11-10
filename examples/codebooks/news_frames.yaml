@@ -1,0 +1,113 @@
+# Example codebook for reliacode: generic news frames.
+#
+# Adapted for illustration from the five generic frames in Semetko and Valkenburg (2000). It is
+# not their instrument: they measured each frame with a set of yes/no questions, while this
+# example asks for one dominant frame per article. Definitions are paraphrased, and every example
+# sentence is invented; none comes from a real article.
+#
+# Provenance: drafted with Claude Code (Claude Opus 5.5); author review pending.
+
+name: news-frames
+version: "0.1"
+title: Generic news frames (example)
+description: >
+  Which of five generic frames dominates a news article, and, when blame or credit is
+  assigned, who it is assigned to. Adapted from Semetko and Valkenburg (2000) to show the
+  reliacode codebook format; not a validated instrument.
+language: en
+unit_of_analysis: One news article (headline and body text).
+instructions: >
+  Read the headline and the whole article before coding. Code what the article emphasizes,
+  not what you think about the issue.
+references:
+  - >-
+    Semetko, H. A., & Valkenburg, P. M. (2000). Framing European politics: A content analysis
+    of press and television news. Journal of Communication, 50(2), 93-109.
+    https://doi.org/10.1111/j.1460-2466.2000.tb02843.x
+
+variables:
+  - name: dominant_frame
+    label: Dominant frame
+    definition: The frame that most shapes how the article presents its main event or issue.
+    decision_rules:
+      - Give the most weight to the headline and the first two paragraphs.
+      - If two frames are equally prominent, code the one that appears first in the article.
+      - Code "none" only when the article reports facts without emphasizing any of the frames.
+    categories:
+      - code: conflict
+        label: Conflict
+        definition: >
+          The article emphasizes disagreement, criticism or competition between individuals,
+          groups, parties or institutions.
+        examples:
+          - text: >
+              Opposition leaders accused the minister of misleading parliament, and the
+              minister replied that the opposition had no plan of its own.
+            note: Two sides attacking each other is the core of the story.
+      - code: human_interest
+        label: Human interest
+        definition: >
+          The article puts a human face on the issue, telling it through the experiences and
+          feelings of particular people.
+        examples:
+          - >
+            For a nurse who is raising three children alone, the hospital closure means a
+            two-hour drive to work each morning.
+      - code: economic
+        label: Economic consequences
+        definition: >
+          The article stresses the financial gains, losses or costs that the event or issue
+          brings for people, organizations, regions or countries.
+        examples:
+          - >
+            The new tariff is expected to cost local farmers about 12 million dollars a year
+            in lost exports.
+      - code: morality
+        label: Morality
+        definition: >
+          The article places the issue in the context of moral values, religious principles or
+          social prescriptions about how people ought to behave.
+        examples:
+          - >
+            Church leaders called the policy "a test of our duty to care for strangers."
+      - code: responsibility
+        label: Attribution of responsibility
+        definition: >
+          The article emphasizes who caused the problem or who should solve it.
+        examples:
+          - text: >
+              Engineers said the council's decision to skip inspections led directly to the
+              bridge collapse.
+            note: The story is organized around who is to blame.
+      - code: none
+        label: No dominant frame
+        definition: The article reports facts without emphasizing any of the frames above.
+        examples:
+          - The budget committee will meet on Tuesday at 10 a.m. in Room 4.
+
+  - name: responsibility_target
+    label: Responsibility assigned to
+    definition: >
+      When the article says who caused a problem or who should solve it, the kind of actor it
+      points to.
+    instructions: Code this variable for every article, whatever its dominant frame.
+    decision_rules:
+      - If several actors are named, code the one the article blames or credits most clearly.
+      - Agencies, ministries, councils and elected officials acting in office count as government.
+    categories:
+      - code: government
+        label: Government
+        definition: Responsibility is placed on a government, an agency or officials in office.
+        examples:
+          - The ministry has known about the leak for a year and has done nothing.
+      - code: non_government
+        label: Individual or group
+        definition: >
+          Responsibility is placed on individuals, companies or groups outside government.
+        examples:
+          - The company ignored three warnings about the faulty brakes.
+      - code: not_applicable
+        label: Not applicable
+        definition: The article does not say who caused the problem or who should solve it.
+        examples:
+          - The festival drew about 20,000 visitors over the weekend.

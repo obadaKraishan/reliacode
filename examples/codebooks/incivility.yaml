@@ -1,0 +1,103 @@
+# Example codebook for reliacode: incivility in reader comments.
+#
+# Adapted for illustration from the five forms of incivility in Coe, Kenski and Rains (2014).
+# It is not their instrument: they coded each form as present or absent, while this example asks
+# for the main form per comment and adds an ordinal severity scale that is not in the original.
+# Definitions are paraphrased, and every example comment is invented.
+#
+# Provenance: drafted with Claude Code (Claude Opus 5.5); author review pending.
+
+name: incivility
+version: "0.1"
+title: Incivility in reader comments (example)
+description: >
+  The main form of incivility in a reader comment, and how severe the comment is. Adapted from
+  Coe, Kenski and Rains (2014) to show the reliacode codebook format, including an ordinal
+  variable; not a validated instrument.
+language: en
+unit_of_analysis: One reader comment posted below a news article.
+instructions: >
+  Code the comment as written, without guessing at sarcasm that the text does not signal.
+  Disagreement, however strong, is not incivility on its own.
+references:
+  - >-
+    Coe, K., Kenski, K., & Rains, S. A. (2014). Online and uncivil? Patterns and determinants
+    of incivility in newspaper website comments. Journal of Communication, 64(4), 658-679.
+    https://doi.org/10.1111/jcom.12104
+
+variables:
+  - name: incivility_form
+    label: Main form of incivility
+    definition: The most prominent form of uncivil language in the comment.
+    decision_rules:
+      - If the comment uses more than one form, code the one that takes up most of the comment.
+      - If two forms are equally prominent, code the one that appears first.
+      - Quoting someone else's uncivil words in order to criticize them is not incivility.
+    categories:
+      - code: none
+        label: None
+        definition: The comment contains no uncivil language.
+        examples:
+          - I disagree with the plan, but the author makes fair points about the costs.
+      - code: name_calling
+        label: Name-calling
+        definition: Insulting or belittling words aimed at a person or a group of people.
+        examples:
+          - Only a clown would vote for this mayor.
+      - code: aspersion
+        label: Aspersion
+        definition: >
+          Disparaging remarks about an idea, plan, policy or action, rather than about a person.
+        examples:
+          - text: This is the dumbest budget proposal I have ever read.
+            note: The insult is aimed at the proposal, not at its author.
+      - code: lying
+        label: Accusation of lying
+        definition: >
+          Saying or implying that a person, idea or report is dishonest or deliberately
+          misleading.
+        examples:
+          - The senator is lying again about where the money went.
+      - code: vulgarity
+        label: Vulgarity
+        definition: Swear words or crude language.
+        examples:
+          - What a damn mess this council has made.
+      - code: pejorative_for_speech
+        label: Pejorative for speech
+        definition: Disparaging remarks about the way someone speaks or writes.
+        examples:
+          - Stop whining and read the actual report.
+
+  - name: severity
+    label: Severity
+    definition: >
+      How strongly uncivil the comment is overall. This scale is added for illustration and is
+      not part of Coe, Kenski and Rains (2014).
+    type: ordinal
+    decision_rules:
+      - Judge the comment as a whole, using its most uncivil sentence.
+      - If you are unsure between two levels, code the lower one.
+    categories:
+      - code: none
+        label: None
+        level: 0
+        definition: No uncivil language.
+        examples:
+          - I disagree with the plan, but the author makes fair points about the costs.
+      - code: mild
+        label: Mild
+        level: 1
+        definition: >
+          Incivility aimed at ideas or at the way people speak, or a single crude word that is
+          not aimed at anyone.
+        examples:
+          - This is the dumbest budget proposal I have ever read.
+      - code: strong
+        label: Strong
+        level: 2
+        definition: >
+          Incivility aimed at people, such as insults or accusations of lying, or crude language
+          directed at someone.
+        examples:
+          - Only a clown would vote for this mayor.
