@@ -54,11 +54,13 @@ described in [docs/codebook-format.md](docs/codebook-format.md).
 | Module | What it does | Status |
 |---|---|---|
 | Codebook | YAML codebooks validated with pydantic, with plain-language error messages and a stable content hash | done (S1) |
-| Backend adapter | One `code()` runner for any OpenAI-compatible endpoint | planned |
-| Cost ledger | Tokens, cost and timing for every call | planned |
-| Reliability | Krippendorff's alpha and Cohen's kappa with bootstrap CIs | planned |
-| PPI | Prediction-powered inference for prevalence estimates | planned |
-| Methods exporter | A Markdown and LaTeX methods paragraph | planned |
+| Backend adapter | One `code()` runner for any OpenAI-compatible endpoint | planned ([#1](https://github.com/obadaKraishan/reliacode/issues/1)) |
+| Cost ledger | Tokens, cost and timing for every call | planned ([#2](https://github.com/obadaKraishan/reliacode/issues/2)) |
+| Reliability | Krippendorff's alpha and Cohen's kappa with bootstrap CIs | planned ([#3](https://github.com/obadaKraishan/reliacode/issues/3)) |
+| PPI | Prediction-powered inference for prevalence estimates | planned ([#4](https://github.com/obadaKraishan/reliacode/issues/4)) |
+| Methods exporter | A Markdown and LaTeX methods paragraph | planned ([#5](https://github.com/obadaKraishan/reliacode/issues/5)) |
+
+A documentation site ([#6](https://github.com/obadaKraishan/reliacode/issues/6)) and two case studies on public human-coded data ([#7](https://github.com/obadaKraishan/reliacode/issues/7), [#8](https://github.com/obadaKraishan/reliacode/issues/8)) are planned for v0.1 as well. The [roadmap](docs/roadmap.md) has the schedule.
 
 ## Development
 ```bash
