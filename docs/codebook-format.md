@@ -141,7 +141,7 @@ normalized to NFC, so the same letters typed on different systems compare equal.
 ## The content hash
 
 `Codebook.content_hash()` returns a fingerprint such as
-`sha256:faf658c7…`. Report it with your results. Anyone holding the codebook file can then check
+`sha256:b4bdbacd…`. Report it with your results. Anyone holding the codebook file can then check
 that it is the one you used, and two analyses with the same hash used the same codebook.
 
 The hash depends on what the codebook says, not on how the file is written. These do **not**

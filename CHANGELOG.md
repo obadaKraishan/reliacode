@@ -27,3 +27,16 @@ All notable changes to this project are recorded here. The format follows
     Valkenburg, 2000) and `examples/codebooks/incivility.yaml` (adapted from Coe, Kenski and
     Rains, 2014, plus an ordinal severity scale).
   - `docs/codebook-format.md`: the format, the checks, YAML pitfalls and the hash recipe.
+
+### Changed
+- The example codebooks were revised after the author's review, so **both content hashes
+  changed**:
+  - `incivility.yaml`:
+    - a new vulgarity example that is not also an aspersion
+    - severity "mild" and "strong" definitions that put every accusation of lying on one level
+    - a new severity rule: none if and only if `incivility_form` is none
+    - new hash `sha256:0a56109f1da29f0242fae1edf057785de91e1f0d2474227e977764aaa2b234dd`
+  - `news_frames.yaml`:
+    - the responsibility wording now follows Semetko and Valkenburg's cause-or-solution framing
+    - new hash `sha256:b4bdbacd8a7fae5da8725e4bd5c2f5f5a44187922e5ec380a2b21f2ee491bdb1`
+  - Both files now record provenance `llm_drafted_human_validated`.
