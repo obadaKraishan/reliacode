@@ -27,7 +27,7 @@ uv run ruff check . && uv run ruff format --check .  # lint and format
 ```
 
 ## Pull requests
-- Keep each pull request to one change, with tests for new behaviour and for every bug fix.
+- Keep each pull request to one change, with tests for new behavior and for every bug fix.
 - Run the tests and ruff before you push. CI runs both on Python 3.10, 3.11, 3.12 and 3.13.
 - Add a line to the `[Unreleased]` section of [CHANGELOG.md](CHANGELOG.md).
 - Write error messages and documentation for researchers: plain words, with an example where it

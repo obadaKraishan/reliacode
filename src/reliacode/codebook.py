@@ -44,7 +44,7 @@ def _clean_text(value: str) -> str:
     return value
 
 
-#: Text: surrounding whitespace is removed, Unicode is normalised to NFC, and it may not be empty.
+#: Text: surrounding whitespace is removed, Unicode is normalized to NFC, and it may not be empty.
 Text = Annotated[str, AfterValidator(_clean_text)]
 
 #: Variable names become column names in coded data.

@@ -64,7 +64,7 @@ def test_full_codebook_loads() -> None:
     assert codebook.authors == ("A. Researcher",)
 
 
-def test_text_is_stripped_and_unicode_normalised() -> None:
+def test_text_is_stripped_and_unicode_normalized() -> None:
     decomposed = "Café"  # "Café" written as "e" + combining accent (NFD)
     codebook = parse_codebook(
         yaml_text(
