@@ -1,12 +1,7 @@
-import textwrap
-
 import pytest
 
+from helpers import yaml_text
 from reliacode._yaml import YamlError, load_yaml
-
-
-def yaml_text(text: str) -> str:
-    return textwrap.dedent(text).lstrip("\n")
 
 
 def test_loads_data_and_records_lines_of_keys_and_items() -> None:
