@@ -1,0 +1,25 @@
+# Fixture for the pinned content-hash test (tests/test_hash.py). Do not edit: any change to
+# this file, or to how the hash is computed, changes the pinned value on purpose.
+name: golden
+version: "1.0"
+language: en
+authors: [Test Author]
+variables:
+  - name: severity
+    definition: How strongly uncivil the comment is.
+    type: ordinal
+    decision_rules:
+      - If unsure between two levels, choose the lower one.
+    categories:
+      - code: none
+        definition: No uncivil language.
+        level: 0
+        examples:
+          - Merci, très clair.
+      - code: strong
+        label: قوي
+        definition: Insults aimed at a person.
+        level: 1
+        examples:
+          - text: You are an idiot.
+            note: A direct insult.

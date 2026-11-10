@@ -4,6 +4,8 @@ A codebook is written in YAML and loaded with :func:`load_codebook`. The models 
 so a loaded codebook cannot drift from the file it came from.
 """
 
+import hashlib
+import json
 import os
 import unicodedata
 from pathlib import Path
@@ -29,6 +31,10 @@ from reliacode.errors import (
     describe,
     problems_from_validation_error,
 )
+
+#: Version of the content-hash recipe. It is part of the hashed data, so it changes every hash.
+#: Bump it whenever what the hash covers, or how it is computed, changes.
+HASH_VERSION = 1
 
 
 def _clean_text(value: str) -> str:
@@ -167,6 +173,32 @@ class Codebook(_Model):
                 return variable
         known = ", ".join(v.name for v in self.variables)
         raise KeyError(f'This codebook has no variable "{name}". Its variables are: {known}.')
+
+    def canonical_json(self) -> str:
+        """The exact text that :meth:`content_hash` hashes.
+
+        It is the validated codebook as compact JSON with sorted keys, leaving out every field
+        that still has its default value, wrapped with the hash recipe version:
+        ``{"codebook": {...}, "reliacode_codebook_hash": 1}``.
+        """
+        payload = {
+            "reliacode_codebook_hash": HASH_VERSION,
+            "codebook": self.model_dump(mode="json", exclude_defaults=True),
+        }
+        return json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+
+    def content_hash(self) -> str:
+        """A stable fingerprint of the codebook's content, as ``"sha256:<64 hex digits>"``.
+
+        The hash depends only on what the codebook says, not on how the YAML is written:
+        key order, comments, indentation, quoting, block or flow style, surrounding whitespace,
+        and writing out default values all leave it unchanged. Any change to a text, code or
+        level changes it, and so does reordering variables or categories, because order reaches
+        the prompts a model sees. Report it with results so readers can check which codebook
+        was used.
+        """
+        digest = hashlib.sha256(self.canonical_json().encode("utf-8")).hexdigest()
+        return f"sha256:{digest}"
 
 
 def _quoted(items: list[str]) -> str:
