@@ -26,6 +26,15 @@ uv run pytest --cov=reliacode                      # with coverage (CI requires 
 uv run ruff check . && uv run ruff format --check .  # lint and format
 ```
 
+## Workflow
+`main` is protected: nobody pushes to it directly, the maintainer included.
+1. Start from an issue. Open one first if there is none.
+2. Work on a branch named for the change, such as `feature/backend-adapter` or `fix/yaml-tabs`,
+   in small commits.
+3. Open one pull request per issue, and write `Closes #N` in its description.
+4. Merge when CI is green on all four Python versions. Pull requests are merged with a merge
+   commit, never squashed, so the history keeps every commit.
+
 ## Pull requests
 - Keep each pull request to one change, with tests for new behavior and for every bug fix.
 - Run the tests and ruff before you push. CI runs both on Python 3.10, 3.11, 3.12 and 3.13.
