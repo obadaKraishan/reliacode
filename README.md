@@ -16,10 +16,44 @@ and repeated.
 > planned (see below and the issue tracker). Nothing is on PyPI yet, and the API will change
 > before v0.1.0.
 
+## Codebooks
+A codebook is a YAML file. Here is a shortened version of
+[`examples/codebooks/news_frames.yaml`](examples/codebooks/news_frames.yaml):
+
+```yaml
+name: news-frames
+unit_of_analysis: One news article (headline and body text).
+variables:
+  - name: dominant_frame
+    definition: The frame that most shapes how the article presents its main event or issue.
+    decision_rules:
+      - If two frames are equally prominent, code the one that appears first in the article.
+    categories:
+      - code: conflict
+        definition: The article emphasizes disagreement between individuals, groups or institutions.
+        examples:
+          - Opposition leaders accused the minister of misleading parliament.
+      - code: economic
+        definition: The article stresses financial gains, losses or costs.
+```
+
+```python
+import reliacode
+
+codebook = reliacode.load_codebook("examples/codebooks/news_frames.yaml")
+codebook.variable("dominant_frame").codes  # ('conflict', 'human_interest', 'economic', ...)
+codebook.content_hash()                     # 'sha256:faf658c7...', to report with results
+```
+
+If something is wrong, loading stops with a list of every problem, each with its line number and
+a fix, such as `Line 4, variable "dominant_frame": "defintion" is not a recognized field. Did
+you mean "definition"?`. Ordinal variables, the full list of checks and the hash recipe are
+described in [docs/codebook-format.md](docs/codebook-format.md).
+
 ## Planned modules (v0.1)
 | Module | What it does | Status |
 |---|---|---|
-| Codebook | YAML codebooks validated with pydantic, with plain-language error messages and a stable content hash | in progress |
+| Codebook | YAML codebooks validated with pydantic, with plain-language error messages and a stable content hash | done (S1) |
 | Backend adapter | One `code()` runner for any OpenAI-compatible endpoint | planned |
 | Cost ledger | Tokens, cost and timing for every call | planned |
 | Reliability | Krippendorff's alpha and Cohen's kappa with bootstrap CIs | planned |
