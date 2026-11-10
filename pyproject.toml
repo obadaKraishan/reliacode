@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "reliacode"
 version = "0.1.0.dev0"
-description = "Validated LLM content analysis: YAML codebooks, reliability with confidence intervals, and transparent methods reporting."
+description = "Validated LLM-assisted content analysis: YAML codebooks, reliability with bootstrap CIs, and methods reporting"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
