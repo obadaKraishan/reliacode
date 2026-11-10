@@ -37,14 +37,6 @@ class LoadedYaml:
     data: Any
     lines: dict[YamlPath, int] = field(default_factory=dict)
 
-    def line_for(self, path: YamlPath) -> int | None:
-        """The line of ``path``, or of its deepest part that exists in the document."""
-        for end in range(len(path), -1, -1):
-            line = self.lines.get(tuple(path[:end]))
-            if line is not None:
-                return line
-        return None
-
 
 class _StrictLoader(yaml.SafeLoader):
     """SafeLoader that refuses duplicate keys in a mapping."""

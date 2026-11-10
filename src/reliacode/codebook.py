@@ -16,14 +16,19 @@ from pydantic import (
     Field,
     Strict,
     StringConstraints,
+    ValidationError,
     model_validator,
 )
 from pydantic_core import PydanticCustomError
 
-from reliacode._yaml import load_yaml
-
-#: Separates several rule messages raised by one cross-field check.
-RULE_SEPARATOR = "\n"
+from reliacode._yaml import YamlError, load_yaml
+from reliacode.errors import (
+    RULE_SEPARATOR,
+    CodebookError,
+    Problem,
+    describe,
+    problems_from_validation_error,
+)
 
 
 def _clean_text(value: str) -> str:
@@ -169,12 +174,47 @@ def _quoted(items: list[str]) -> str:
 
 
 def parse_codebook(text: str, source: str = "<string>") -> Codebook:
-    """Read a codebook from YAML text. ``source`` names the text in error messages."""
-    loaded = load_yaml(text)
-    return Codebook.model_validate(loaded.data)
+    """Read a codebook from YAML text. ``source`` names the text in error messages.
+
+    Raises:
+        CodebookError: the text is not valid YAML or not a valid codebook. The error lists every
+            problem found, each with its line number and a suggested fix.
+    """
+    try:
+        loaded = load_yaml(text)
+    except YamlError as exc:
+        raise CodebookError([Problem(exc.message, line=exc.line)], source) from None
+    data = loaded.data
+    if data is None:
+        message = "The file is empty. A codebook needs at least a name and a list of variables."
+        raise CodebookError([Problem(message)], source)
+    if not isinstance(data, dict):
+        message = (
+            "A codebook should be a block of fields such as name: and variables:, but this file "
+            f"holds {describe(data)}."
+        )
+        raise CodebookError([Problem(message, line=1)], source)
+    try:
+        return Codebook.model_validate(data)
+    except ValidationError as exc:
+        problems = problems_from_validation_error(exc, Codebook, data, loaded.lines)
+        raise CodebookError(problems, source) from None
 
 
 def load_codebook(path: str | os.PathLike[str]) -> Codebook:
-    """Read a codebook from a YAML file (UTF-8, with or without a byte-order mark)."""
+    """Read a codebook from a YAML file (UTF-8, with or without a byte-order mark).
+
+    Raises:
+        FileNotFoundError: there is no file at ``path``.
+        CodebookError: the file is not UTF-8 text, not valid YAML, or not a valid codebook.
+    """
     path = Path(path)
-    return parse_codebook(path.read_text(encoding="utf-8-sig"), source=str(path))
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        message = (
+            "The file is not saved as UTF-8 text. Open it in a text editor and save it again "
+            'with the encoding set to "UTF-8".'
+        )
+        raise CodebookError([Problem(message)], str(path)) from None
+    return parse_codebook(text, source=str(path))

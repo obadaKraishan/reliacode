@@ -25,21 +25,6 @@ def test_loads_data_and_records_lines_of_keys_and_items() -> None:
     assert loaded.lines[("variables", 0, "categories", 1, "code")] == 6
 
 
-def test_line_for_falls_back_to_the_deepest_existing_part() -> None:
-    loaded = load_yaml(
-        yaml_text(
-            """
-            variables:
-              - name: tone
-                label: Tone
-            """
-        )
-    )
-    # "definition" is not in the document, so the variable's own line is used.
-    assert loaded.line_for(("variables", 0, "definition")) == 2
-    assert loaded.line_for(("nothing", "here")) == 1
-
-
 def test_key_line_is_used_for_block_scalars() -> None:
     loaded = load_yaml(
         yaml_text(
