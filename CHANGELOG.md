@@ -40,3 +40,5 @@ All notable changes to this project are recorded here. The format follows
     - the responsibility wording now follows Semetko and Valkenburg's cause-or-solution framing
     - new hash `sha256:b4bdbacd8a7fae5da8725e4bd5c2f5f5a44187922e5ec380a2b21f2ee491bdb1`
   - Both files now record provenance `llm_drafted_human_validated`.
+- The README's AI-use disclosure now describes the actual workflow: the author directs the work
+  and reviews changes, and changes are not each reviewed before they are committed.
