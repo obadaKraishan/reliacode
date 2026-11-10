@@ -11,9 +11,9 @@ name: news-frames
 version: "0.1"
 title: Generic news frames (example)
 description: >
-  Which of five generic frames dominates a news article, and, when blame or credit is
-  assigned, who it is assigned to. Adapted from Semetko and Valkenburg (2000) to show the
-  reliacode codebook format; not a validated instrument.
+  Which of five generic frames dominates a news article, and which actor the article holds
+  responsible for causing or solving the problem. Adapted from Semetko and Valkenburg (2000)
+  to show the reliacode codebook format; not a validated instrument.
 language: en
 unit_of_analysis: One news article (headline and body text).
 instructions: >
@@ -92,7 +92,7 @@ variables:
       points to.
     instructions: Code this variable for every article, whatever its dominant frame.
     decision_rules:
-      - If several actors are named, code the one the article blames or credits most clearly.
+      - If several actors are named, code the one the article holds responsible most clearly.
       - Agencies, ministries, councils and elected officials acting in office count as government.
     categories:
       - code: government
