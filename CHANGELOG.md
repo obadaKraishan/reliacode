@@ -27,6 +27,8 @@ All notable changes to this project are recorded here. The format follows
     Valkenburg, 2000) and `examples/codebooks/incivility.yaml` (adapted from Coe, Kenski and
     Rains, 2014, plus an ordinal severity scale).
   - `docs/codebook-format.md`: the format, the checks, YAML pitfalls and the hash recipe.
+- A Workflow section in CONTRIBUTING: `main` is protected, and changes go through one pull
+  request per issue, merged with a merge commit once CI is green.
 
 ### Changed
 - The example codebooks were revised after the author's review, so **both content hashes
@@ -42,3 +44,4 @@ All notable changes to this project are recorded here. The format follows
   - Both files now record provenance `llm_drafted_human_validated`.
 - The README's AI-use disclosure now describes the actual workflow: the author directs the work
   and reviews changes, and changes are not each reviewed before they are committed.
+- The package description now matches the repository description.

@@ -13,6 +13,8 @@ v0.1.0 is planned for early January 2027 (milestone v0.1.0); see `docs/roadmap.m
   research text. Case studies ship loaders that fetch data from its source, never the data.
 - **Small, real, incremental commits** with clear messages, pushed as they are made. No code
   dumps, no backdating, no squashing, no force pushes.
+- **`main` is protected.** Work on a branch and open a pull request per issue (`Closes #N`). Merge
+  with a merge commit once CI is green; see the Workflow section of CONTRIBUTING.md.
 - **AI use is disclosed.** Commits made with an AI assistant keep their `Co-Authored-By:`
   trailer, and the README's AI-use disclosure must stay accurate.
 - **Never publish** (PyPI or TestPyPI, Zenodo, git tags, GitHub releases) without the
