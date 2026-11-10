@@ -5,7 +5,8 @@
 # for the main form per comment and adds an ordinal severity scale that is not in the original.
 # Definitions are paraphrased, and every example comment is invented.
 #
-# Provenance: drafted with Claude Code (Claude Opus 5.5); author review pending.
+# Provenance: llm_drafted_human_validated (drafted with Claude Code, Claude Opus 5.5; reviewed by
+# the author on 2026-11-10).
 
 name: incivility
 version: "0.1"

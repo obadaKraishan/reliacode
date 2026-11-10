@@ -5,7 +5,8 @@
 # example asks for one dominant frame per article. Definitions are paraphrased, and every example
 # sentence is invented; none comes from a real article.
 #
-# Provenance: drafted with Claude Code (Claude Opus 5.5); author review pending.
+# Provenance: llm_drafted_human_validated (drafted with Claude Code, Claude Opus 5.5; reviewed by
+# the author on 2026-11-10).
 
 name: news-frames
 version: "0.1"
