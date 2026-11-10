@@ -42,7 +42,7 @@ import reliacode
 
 codebook = reliacode.load_codebook("examples/codebooks/news_frames.yaml")
 codebook.variable("dominant_frame").codes  # ('conflict', 'human_interest', 'economic', ...)
-codebook.content_hash()                     # 'sha256:faf658c7...', to report with results
+codebook.content_hash()  # 'sha256:faf658c7...', to report with results
 ```
 
 If something is wrong, loading stops with a list of every problem, each with its line number and

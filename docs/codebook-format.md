@@ -9,8 +9,8 @@ definitions, examples and decision rules. Two complete examples are in
 import reliacode
 
 codebook = reliacode.load_codebook("examples/codebooks/news_frames.yaml")
-codebook.variable("dominant_frame").codes   # ('conflict', 'human_interest', ...)
-codebook.content_hash()                      # 'sha256:...'
+codebook.variable("dominant_frame").codes  # ('conflict', 'human_interest', ...)
+codebook.content_hash()  # 'sha256:...'
 ```
 
 ## Structure
@@ -171,6 +171,7 @@ any SHA-256 tool:
 
 ```python
 import hashlib
+
 text = codebook.canonical_json()
 assert codebook.content_hash() == "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
 ```
