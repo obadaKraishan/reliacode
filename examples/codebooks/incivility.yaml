@@ -62,7 +62,7 @@ variables:
         label: Vulgarity
         definition: Swear words or crude language.
         examples:
-          - What a damn mess this council has made.
+          - Damn, nobody saw that coming.
       - code: pejorative_for_speech
         label: Pejorative for speech
         definition: Disparaging remarks about the way someone speaks or writes.
@@ -78,6 +78,7 @@ variables:
     decision_rules:
       - Judge the comment as a whole, using its most uncivil sentence.
       - If you are unsure between two levels, code the lower one.
+      - Code none here if and only if incivility_form is none.
     categories:
       - code: none
         label: None
@@ -89,15 +90,15 @@ variables:
         label: Mild
         level: 1
         definition: >
-          Incivility aimed at ideas or at the way people speak, or a single crude word that is
-          not aimed at anyone.
+          Incivility aimed at ideas, plans, reports or the way people speak, including saying a
+          plan or report is dishonest, or crude language that is not aimed at anyone.
         examples:
           - This is the dumbest budget proposal I have ever read.
       - code: strong
         label: Strong
         level: 2
         definition: >
-          Incivility aimed at people, such as insults or accusations of lying, or crude language
+          Incivility aimed at people: name-calling, saying a person is lying, or crude language
           directed at someone.
         examples:
           - Only a clown would vote for this mayor.
