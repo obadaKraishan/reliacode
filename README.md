@@ -72,11 +72,5 @@ uv run ruff check . && uv run ruff format --check .
 ```
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to report problems and propose changes.
 
-## AI-use disclosure
-reliacode is developed with [Claude Code](https://claude.com/claude-code), an AI coding
-assistant. The author directs the work, reviews changes, and is responsible for the code and its
-correctness. Commits made with Claude Code carry a `Co-Authored-By: Claude` trailer, so the
-history shows which changes were AI-assisted.
-
 ## License
 MIT, see [LICENSE](LICENSE).
