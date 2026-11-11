@@ -46,8 +46,7 @@ uv run ruff check . && uv run ruff format --check .  # lint and format
 
 ## Use of AI tools
 You may use AI assistants. Please say so in the pull request, and make sure you have read and
-understood every line you submit: you are responsible for it. The maintainer develops reliacode
-with Claude Code and discloses this in the README and in commit trailers.
+understood every line you submit: you are responsible for it.
 
 ## Scope
 v0.1 is frozen at the modules listed in the README: codebook, backend adapter, cost ledger,
