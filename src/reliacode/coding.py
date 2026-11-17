@@ -12,6 +12,8 @@ a second try, the JSON Schema of the answer, and the version of this recipe.
 
 import hashlib
 import json
+import re
+from collections.abc import Sequence
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
@@ -29,6 +31,11 @@ INSTRUCTION = (
 )
 #: The message that carries each text.
 USER_TEMPLATE = "Text to code:\n\n{text}"
+#: How much of a bad answer a problem message quotes.
+_QUOTE = 60
+_THINKING = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+_FENCE = re.compile(r"\A```(?:json)?\s*(.*?)\s*```\Z", re.DOTALL | re.IGNORECASE)
+
 #: The message sent after an answer that cannot be used, before the model answers again.
 RETRY_TEMPLATE = (
     "That answer cannot be used: {problem} Answer again with only a JSON object of the form "
@@ -136,3 +143,48 @@ def _system_text(codebook: Codebook, variable: Variable) -> str:
         f"of: {codes}. Write nothing else.",
     ]
     return "\n".join(lines)
+
+
+def check_answer(text: str, codes: Sequence[str]) -> tuple[str | None, str | None]:
+    """Read the code from a model's answer, and say why when it cannot be used.
+
+    A valid answer is a JSON object whose ``code`` is exactly one of ``codes``, such as
+    ``{"code": "conflict"}``. Other fields are ignored. Spaces around the answer or the code, a
+    code fence (```json ... ```) around the object, and a ``<think>...</think>`` block before it
+    are allowed. A whole number is read as text, for codes such as "1". Nothing else is changed:
+    upper and lower case must match, and a near miss is never corrected to the closest code.
+
+    Returns:
+        ``(code, None)`` for a valid answer, or ``(None, problem)``, where ``problem`` says in
+        plain words what is wrong with the answer.
+    """
+    cleaned = _THINKING.sub("", text).strip()
+    fence = _FENCE.match(cleaned)
+    if fence:
+        cleaned = fence.group(1).strip()
+    if not cleaned:
+        return None, "The answer is empty."
+    try:
+        data = json.loads(cleaned)
+    except ValueError:
+        return None, f"The answer is not a JSON object: {_quoted(cleaned)}."
+    if not isinstance(data, dict):
+        return None, f'The answer is not a JSON object with a "code" field: {_quoted(cleaned)}.'
+    if "code" not in data:
+        return None, f'The answer has no "code" field: {_quoted(cleaned)}.'
+    value = data["code"]
+    if isinstance(value, int) and not isinstance(value, bool):
+        value = str(value)
+    if not isinstance(value, str):
+        return None, f'The "code" in the answer is not text: {_quoted(json.dumps(value))}.'
+    value = value.strip()
+    if value not in codes:
+        return None, f"{_quoted(value)} is not one of the codes."
+    return value, None
+
+
+def _quoted(text: str) -> str:
+    short = " ".join(text.split())
+    if len(short) > _QUOTE:
+        short = short[: _QUOTE - 3] + "..."
+    return f'"{short}"'
