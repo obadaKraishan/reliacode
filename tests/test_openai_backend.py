@@ -281,7 +281,8 @@ def test_the_model_name_is_trimmed() -> None:
 def test_repr_names_the_server_and_the_model() -> None:
     backend = OpenAICompatibleBackend(LOCAL, "tiny-model")
     assert repr(backend) == (
-        "OpenAICompatibleBackend(base_url='http://localhost:11434/v1', model='tiny-model')"
+        "OpenAICompatibleBackend(base_url='http://localhost:11434/v1', model='tiny-model', "
+        "api_key_env=None)"
     )
 
 

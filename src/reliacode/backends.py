@@ -6,6 +6,8 @@ interface, so any object with a matching ``complete`` method can be used as a ba
 """
 
 import logging
+import os
+import re
 import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
@@ -222,6 +224,11 @@ class FakeBackend:
 #: How much of an unexpected answer an error message quotes.
 _SNIPPET = 200
 _CHAT_PATH = "/chat/completions"
+#: Names of key variables are written in capitals; a key itself almost never is.
+_KEY_NAME = re.compile(r"[A-Z_][A-Z0-9_]*")
+#: A key is printable ASCII with no spaces, so it can go in an HTTP header.
+_KEY_CHARACTERS = re.compile(r"[\x21-\x7e]+")
+_HIDDEN = "[key hidden]"
 
 
 class OpenAICompatibleBackend:
@@ -234,6 +241,10 @@ class OpenAICompatibleBackend:
         base_url: the server's address, up to and including the version part, such as
             ``"http://localhost:11434/v1"`` for a local Ollama server.
         model: the model's name, as the server knows it, such as ``"qwen3:4b"``.
+        api_key_env: the *name* of the environment variable that holds the API key, such as
+            ``"OPENROUTER_API_KEY"``, or ``None`` for a local server that needs no key. The key
+            is read from that variable each time a request is sent, goes only into the request's
+            Authorization header, and is never stored, logged or shown in an error.
         timeout: how many seconds to wait for each answer.
         temperature: the sampling temperature. The default, 0, makes answers as repeatable as
             the server allows.
@@ -253,6 +264,7 @@ class OpenAICompatibleBackend:
         base_url: str,
         model: str,
         *,
+        api_key_env: str | None = None,
         timeout: float = 60.0,
         temperature: float = 0.0,
         seed: int | None = None,
@@ -263,6 +275,7 @@ class OpenAICompatibleBackend:
     ) -> None:
         self.base_url = _check_base_url(base_url)
         self.model = _check_model(model)
+        self.api_key_env = _check_key_name(api_key_env)
         self.timeout = _check_number("timeout", timeout, minimum=0, inclusive=False)
         self.temperature = _check_number("temperature", temperature, minimum=0)
         self.seed = _check_whole("seed", seed)
@@ -288,6 +301,8 @@ class OpenAICompatibleBackend:
                 a shape that is not a chat completion.
         """
         checked = check_messages(messages)
+        key = self._read_key()  # at call time, so a changed variable takes effect
+        headers = {"Authorization": f"Bearer {key}"} if key else {}
         structured = self.structured_output and json_schema is not None
         body: dict[str, Any] = {
             "model": self.model,
@@ -314,7 +329,7 @@ class OpenAICompatibleBackend:
         )
         logger.debug("POST %s (model %s)", self.endpoint, self.model)
         started = self._clock()
-        answer = self._client.post(self.endpoint, json=body)
+        answer = self._client.post(self.endpoint, json=body, headers=headers)
         latency = max(self._clock() - started, 0.0)
         if answer.status_code >= 400:
             raise BackendError(
@@ -323,27 +338,58 @@ class OpenAICompatibleBackend:
                 endpoint=self.endpoint,
                 status=answer.status_code,
             )
-        return self._parse(answer, parameters, latency, attempts=1)
+        return self._parse(answer, parameters, latency, attempts=1, key=key)
+
+    def _read_key(self) -> str | None:
+        name = self.api_key_env
+        if name is None:
+            return None
+        value = os.environ.get(name)
+        if value is None or not value.strip():
+            state = "is not set" if value is None else "is set but empty"
+            raise BackendError(
+                f"The environment variable {name} {state}, so there is no API key to send to "
+                f"{self.endpoint}. Set it before you start Python, for example with "
+                f"export {name}=... in a terminal, or load it from a .env file that you never "
+                "share. Do not write the key into your code.",
+                reason="missing_key",
+                endpoint=self.endpoint,
+            )
+        key = value.strip()
+        if not _KEY_CHARACTERS.fullmatch(key):
+            raise BackendError(
+                f"The environment variable {name} holds spaces, line breaks or other characters "
+                "that an API key cannot have, so it cannot be sent. Check its value (this "
+                "message does not show it).",
+                reason="bad_key",
+                endpoint=self.endpoint,
+            )
+        return key
 
     def _parse(
-        self, answer: httpx.Response, parameters: RequestParameters, latency: float, attempts: int
+        self,
+        answer: httpx.Response,
+        parameters: RequestParameters,
+        latency: float,
+        attempts: int,
+        key: str | None,
     ) -> Response:
         try:
             data = answer.json()
         except ValueError:
-            raise self._unexpected("the answer is not JSON", answer) from None
+            raise self._unexpected("the answer is not JSON", answer, key) from None
         if not isinstance(data, dict):
-            raise self._unexpected("the answer is not a JSON object", answer)
+            raise self._unexpected("the answer is not a JSON object", answer, key)
         choices = data.get("choices")
         if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
-            raise self._unexpected('it has no "choices" list', answer)
+            raise self._unexpected('it has no "choices" list', answer, key)
         choice = choices[0]
         message = choice.get("message")
         if not isinstance(message, dict):
-            raise self._unexpected('its first choice has no "message"', answer)
+            raise self._unexpected('its first choice has no "message"', answer, key)
         text = _content_text(message.get("content"))
         if text is None:
-            raise self._unexpected('the message "content" is not text', answer)
+            raise self._unexpected('the message "content" is not text', answer, key)
         usage = data.get("usage")
         usage = usage if isinstance(usage, dict) else {}
         return Response(
@@ -362,8 +408,8 @@ class OpenAICompatibleBackend:
             created_at=utc_now(),
         )
 
-    def _unexpected(self, what: str, answer: httpx.Response) -> BackendError:
-        snippet = " ".join(answer.text[:_SNIPPET].split())
+    def _unexpected(self, what: str, answer: httpx.Response, key: str | None) -> BackendError:
+        snippet = " ".join(_scrub(answer.text, key)[:_SNIPPET].split())
         return BackendError(
             f"The server at {self.endpoint} answered, but not in the shape of a chat completion: "
             f"{what}. Check that base_url points to an OpenAI-compatible server; its address "
@@ -384,7 +430,10 @@ class OpenAICompatibleBackend:
         self.close()
 
     def __repr__(self) -> str:
-        return f"OpenAICompatibleBackend(base_url={self.base_url!r}, model={self.model!r})"
+        return (
+            f"OpenAICompatibleBackend(base_url={self.base_url!r}, model={self.model!r}, "
+            f"api_key_env={self.api_key_env!r})"
+        )
 
 
 def _check_base_url(base_url: object) -> str:
@@ -410,6 +459,24 @@ def _check_base_url(base_url: object) -> str:
     if parts.scheme not in ("http", "https") or not host:
         raise ValueError(f"base_url should start with http:// or https:// and a server, {example}.")
     return url
+
+
+def _check_key_name(name: object) -> str | None:
+    if name is None:
+        return None
+    # The value is never quoted back: if it is a key rather than a name, it must not be shown.
+    if not isinstance(name, str) or not _KEY_NAME.fullmatch(name):
+        raise ValueError(
+            "api_key_env should be the name of the environment variable that holds the key, "
+            "written in capitals, such as OPENROUTER_API_KEY, and not the key itself. Put the "
+            "key in that variable, then pass the variable's name."
+        )
+    return name
+
+
+def _scrub(text: str, key: str | None) -> str:
+    """``text`` with every copy of the key replaced, for text that a server sent back."""
+    return text.replace(key, _HIDDEN) if key else text
 
 
 def _check_model(model: object) -> str:
