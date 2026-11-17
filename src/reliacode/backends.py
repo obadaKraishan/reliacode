@@ -230,6 +230,14 @@ _KEY_NAME = re.compile(r"[A-Z_][A-Z0-9_]*")
 #: A key is printable ASCII with no spaces, so it can go in an HTTP header.
 _KEY_CHARACTERS = re.compile(r"[\x21-\x7e]+")
 _HIDDEN = "[key hidden]"
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+#: Words with which servers say that a model does not exist.
+_MODEL_WORD = re.compile(r"\bmodel", re.IGNORECASE)
+_MISSING_WORDS = re.compile(
+    r"not found|does not exist|not exist|not a valid|invalid|unknown|no such|not available",
+    re.IGNORECASE,
+)
+_SCHEMA_WORDS = re.compile(r"response_format|json_schema|structured|schema", re.IGNORECASE)
 #: Waits between tries: 1, 2, 4, ... seconds, never more than 30.
 _FIRST_WAIT = 1.0
 _LONGEST_WAIT = 30.0
@@ -343,13 +351,8 @@ class OpenAICompatibleBackend:
             structured_output=structured,
         )
         answer, latency, attempts = self._send(body, headers, key)
-        if answer.status_code >= 400:
-            raise BackendError(
-                f"The server at {self.endpoint} answered with status {answer.status_code}.",
-                reason="http_error",
-                endpoint=self.endpoint,
-                status=answer.status_code,
-            )
+        if answer.status_code >= 300:
+            raise self._refused(answer, key)
         return self._parse(answer, parameters, latency, attempts=attempts, key=key)
 
     def _send(
@@ -368,8 +371,8 @@ class OpenAICompatibleBackend:
             failure: httpx.TransportError | None = None
             try:
                 answer = self._client.post(self.endpoint, json=body, headers=headers)
-            except httpx.ConnectError:
-                raise
+            except httpx.ConnectError as exc:
+                raise self._no_server(exc, key) from None
             except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as exc:
                 failure = exc
             if answer is not None and not _worth_retrying(answer.status_code):
@@ -388,6 +391,94 @@ class OpenAICompatibleBackend:
             )
             self._sleep(wait)
         raise AssertionError("unreachable")  # pragma: no cover - the loop returns or raises
+
+    def _no_server(self, failure: httpx.ConnectError, key: str | None) -> BackendError:
+        detail = _scrub(str(failure), key)
+        detail = f" ({detail})" if detail else ""
+        if urlsplit(self.base_url).hostname in _LOCAL_HOSTS:
+            advice = (
+                "Check that the server is running and listens on this port. For Ollama, open "
+                "the Ollama app or run ollama serve in a terminal, then try again."
+            )
+        else:
+            advice = "Check the address in base_url and your internet connection, then try again."
+        return BackendError(
+            f"There is no server answering at {self.base_url}{detail}. {advice}",
+            reason="no_server",
+            endpoint=self.endpoint,
+        )
+
+    def _refused(self, answer: httpx.Response, key: str | None) -> BackendError:
+        """The error for an answer that is a redirect or a refusal (status 300 to 499)."""
+        status = answer.status_code
+        message = _server_message(answer, key)
+        said = _said(answer, key)
+        if status < 400:
+            location = (
+                _scrub(answer.headers.get("location", ""), key) or "an address it did not give"
+            )
+            return BackendError(
+                f"The server at {self.endpoint} sent the request on to {location} (status "
+                f"{status}). Use that address as base_url: reliacode does not follow redirects, so "
+                "a key is never sent to an address you did not choose.",
+                reason="redirected",
+                endpoint=self.endpoint,
+                status=status,
+            )
+        if status in (401, 403):
+            if self.api_key_env:
+                advice = (
+                    f"Check that {self.api_key_env} holds a current key for this service, and "
+                    f'that the key may use the model "{self.model}".'
+                )
+            else:
+                advice = (
+                    "This backend sends no key. Put the key in an environment variable and pass "
+                    'the variable\'s name, for example api_key_env="OPENROUTER_API_KEY".'
+                )
+            return BackendError(
+                f"The server at {self.endpoint} refused the request (status {status}), which "
+                f"usually means a missing or wrong API key. {advice} {said}",
+                reason="key_refused",
+                endpoint=self.endpoint,
+                status=status,
+            )
+        if (
+            status in (400, 404, 422)
+            and _MODEL_WORD.search(message)
+            and _MISSING_WORDS.search(message)
+        ):
+            return BackendError(
+                f'The server at {self.base_url} has no model called "{self.model}" (status '
+                f"{status}). {said} Check the name: for Ollama, ollama list shows the models you "
+                f"have and ollama pull {self.model} downloads one; a hosted service lists its "
+                "model names on its website.",
+                reason="model_not_found",
+                endpoint=self.endpoint,
+                status=status,
+            )
+        if status == 404:
+            return BackendError(
+                f"The server at {self.base_url} has no chat completions endpoint at "
+                f"{self.endpoint} (status 404). Check base_url: it usually ends in /v1, such as "
+                "http://localhost:11434/v1 for Ollama or https://openrouter.ai/api/v1 for "
+                "OpenRouter.",
+                reason="no_endpoint",
+                endpoint=self.endpoint,
+                status=status,
+            )
+        hint = ""
+        if _SCHEMA_WORDS.search(message):
+            hint = (
+                " This server may not support structured output: create the backend with "
+                "structured_output=False, and the expected answer is described in the prompt only."
+            )
+        return BackendError(
+            f"The server at {self.endpoint} refused the request (status {status}). {said}{hint}",
+            reason="bad_request",
+            endpoint=self.endpoint,
+            status=status,
+        )
 
     def _wait_before(self, attempt: int, answer: httpx.Response | None, key: str | None) -> float:
         asked = _retry_after(answer)
@@ -492,6 +583,15 @@ class OpenAICompatibleBackend:
             raise self._unexpected("the answer is not JSON", answer, key) from None
         if not isinstance(data, dict):
             raise self._unexpected("the answer is not a JSON object", answer, key)
+        if "choices" not in data and "error" in data:
+            raise BackendError(
+                f"The server at {self.endpoint} answered with an error instead of a chat "
+                f"completion. {_said(answer, key)} Try again later; if it keeps happening, check "
+                "the model name and the service's status page.",
+                reason="server_error",
+                endpoint=self.endpoint,
+                status=answer.status_code,
+            )
         choices = data.get("choices")
         if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
             raise self._unexpected('it has no "choices" list', answer, key)
