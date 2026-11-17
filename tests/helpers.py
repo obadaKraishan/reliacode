@@ -7,6 +7,13 @@ FIXTURES = Path(__file__).parent / "fixtures"
 EXAMPLES = Path(__file__).parent.parent / "examples" / "codebooks"
 
 
+class NetworkBlockedError(RuntimeError):
+    """Raised when a test tries to open a network connection (see conftest.py).
+
+    It is not an OSError, so no client code can mistake it for a server that is down.
+    """
+
+
 def yaml_text(text: str) -> str:
     """Dedent a triple-quoted YAML snippet so tests can indent it naturally."""
     return textwrap.dedent(text).lstrip("\n")
