@@ -12,9 +12,9 @@ will also keep a ledger of tokens and cost, and write a methods-section paragrap
 model, the prompt, the codebook's content hash and the reliability, so the analysis can be audited
 and repeated.
 
-> **Status: early development.** Only the codebook format exists so far. The other modules are
-> planned (see below and the issue tracker). Nothing is on PyPI yet, and the API will change
-> before v0.1.0.
+> **Status: early development.** The codebook format and the `code()` runner exist so far. The
+> other modules are planned (see below and the issue tracker). Nothing is on PyPI yet, and the
+> API will change before v0.1.0.
 
 ## Codebooks
 A codebook is a YAML file. Here is a shortened version of
@@ -50,11 +50,28 @@ a fix, such as `Line 4, variable "dominant_frame": "defintion" is not a recogniz
 you mean "definition"?`. Ordinal variables, the full list of checks and the hash recipe are
 described in [docs/codebook-format.md](docs/codebook-format.md).
 
+## Coding texts
+`reliacode.code()` codes every text for every variable with a model, checks each answer against
+the codebook's codes, and records how each code was obtained. With a local
+[Ollama](https://ollama.com) server, no text leaves your computer:
+
+```python
+backend = reliacode.OpenAICompatibleBackend("http://localhost:11434/v1", "qwen3:4b")
+run = reliacode.code(codebook, ["The library stays open late in exam week."], backend=backend)
+run.table()  # one row per text, with one code per variable
+```
+
+An answer that is not one of the codes is asked again once, then recorded as missing with the
+raw answers kept. Every result records the model, the endpoint, the parameters, the codebook's
+content hash, the prompt hash and the time. Hosted services work the same way, with the API key
+read from an environment variable; text sent to them leaves your computer. See
+[docs/backends.md](docs/backends.md).
+
 ## Planned modules (v0.1)
 | Module | What it does | Status |
 |---|---|---|
-| Codebook | YAML codebooks validated with pydantic, with plain-language error messages and a stable content hash | done (S1) |
-| Backend adapter | One `code()` runner for any OpenAI-compatible endpoint | planned ([#1](https://github.com/obadaKraishan/reliacode/issues/1)) |
+| Codebook | YAML codebooks validated with pydantic, with plain-language error messages and a stable content hash | done |
+| Backend adapter | One `code()` runner for any OpenAI-compatible endpoint | done ([#1](https://github.com/obadaKraishan/reliacode/issues/1)) |
 | Cost ledger | Tokens, cost and timing for every call | planned ([#2](https://github.com/obadaKraishan/reliacode/issues/2)) |
 | Reliability | Krippendorff's alpha and Cohen's kappa with bootstrap CIs | planned ([#3](https://github.com/obadaKraishan/reliacode/issues/3)) |
 | PPI | Prediction-powered inference for prevalence estimates | planned ([#4](https://github.com/obadaKraishan/reliacode/issues/4)) |
@@ -66,7 +83,7 @@ A documentation site ([#6](https://github.com/obadaKraishan/reliacode/issues/6))
 ```bash
 git clone https://github.com/obadaKraishan/reliacode
 cd reliacode
-uv sync                 # Python 3.10+; installs pydantic, PyYAML, and ruff and pytest for dev
+uv sync                 # Python 3.10+; installs pydantic, PyYAML, httpx, and ruff and pytest
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
 ```
