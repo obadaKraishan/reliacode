@@ -45,3 +45,10 @@ All notable changes to this project are recorded here. The format follows
 - The README's AI-use disclosure now describes the actual workflow: the author directs the work
   and reviews changes, and changes are not each reviewed before they are committed.
 - The package description now matches the repository description.
+
+### Removed
+- Removed internal development notes and the roadmap from the repository: `CLAUDE.md`,
+  `docs/roadmap.md` and `docs/session-log.md` are no longer tracked and are now gitignored, as
+  `prompts/` and `reports/` already were. The README no longer has an AI-use section or a
+  roadmap link (it links the v0.1.0 milestone instead), and CONTRIBUTING no longer describes
+  the maintainer's own AI use. The git history still contains the removed files.

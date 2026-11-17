@@ -1,6 +1,9 @@
-# Session prompts and reports are kept outside this repository.
+# Development notes are kept outside this repository.
 prompts/
 reports/
+CLAUDE.md
+docs/session-log.md
+docs/roadmap.md
 
 # Data is never committed; case studies ship loaders, not raw text.
 data/

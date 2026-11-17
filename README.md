@@ -60,7 +60,7 @@ described in [docs/codebook-format.md](docs/codebook-format.md).
 | PPI | Prediction-powered inference for prevalence estimates | planned ([#4](https://github.com/obadaKraishan/reliacode/issues/4)) |
 | Methods exporter | A Markdown and LaTeX methods paragraph | planned ([#5](https://github.com/obadaKraishan/reliacode/issues/5)) |
 
-A documentation site ([#6](https://github.com/obadaKraishan/reliacode/issues/6)) and two case studies on public human-coded data ([#7](https://github.com/obadaKraishan/reliacode/issues/7), [#8](https://github.com/obadaKraishan/reliacode/issues/8)) are planned for v0.1 as well. The [roadmap](docs/roadmap.md) has the schedule.
+A documentation site ([#6](https://github.com/obadaKraishan/reliacode/issues/6)) and two case studies on public human-coded data ([#7](https://github.com/obadaKraishan/reliacode/issues/7), [#8](https://github.com/obadaKraishan/reliacode/issues/8)) are planned for v0.1 as well. The [v0.1.0 milestone](https://github.com/obadaKraishan/reliacode/milestone/1) tracks the schedule.
 
 ## Development
 ```bash
