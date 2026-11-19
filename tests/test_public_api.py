@@ -1,12 +1,16 @@
-"""The codebook API stays as it is, so code that already loads codebooks keeps working.
+"""The codebook and backend API stays as it is, so code that already uses reliacode keeps
+working.
 
-New modules may add names, but the codebook names, their signatures, their fields and the
-example codebooks' content hashes do not change. A change here is a breaking change: it needs a
+New modules may add names, and functions may gain keyword arguments at the end with defaults
+that keep the old behavior. The existing names, their signatures, their fields and the example
+codebooks' content hashes do not change. A change here is a breaking change: it needs a
 CHANGELOG entry, and a new HASH_VERSION if a hash changes.
 """
 
 import dataclasses
 import inspect
+import time
+from pathlib import Path
 
 import pytest
 
@@ -16,9 +20,17 @@ from reliacode import (
     Category,
     Codebook,
     CodebookError,
+    CodingResult,
+    CodingRun,
     Example,
+    FakeBackend,
+    Ledger,
+    OpenAICompatibleBackend,
     Problem,
+    RequestParameters,
+    Response,
     Variable,
+    code,
     load_codebook,
     parse_codebook,
 )
@@ -34,6 +46,31 @@ CODEBOOK_NAMES = [
     "__version__",
     "load_codebook",
     "parse_codebook",
+]
+
+BACKEND_NAMES = [
+    "Backend",
+    "BackendError",
+    "CodingResult",
+    "CodingRun",
+    "FakeBackend",
+    "OpenAICompatibleBackend",
+    "RequestParameters",
+    "Response",
+    "code",
+]
+
+LEDGER_NAMES = [
+    "Budget",
+    "BudgetError",
+    "Ledger",
+    "LedgerEntry",
+    "LedgerError",
+    "LedgerSummary",
+    "ModelPrice",
+    "PriceTable",
+    "read_ledger",
+    "summarize",
 ]
 
 #: The published content hashes of the example codebooks (see CHANGELOG.md).
@@ -117,3 +154,118 @@ def test_the_example_codebooks_load_with_their_published_hashes(name: str) -> No
     codebook = load_codebook(EXAMPLES / name)
     assert codebook.content_hash() == EXAMPLE_HASHES[name]
     assert parse_codebook((EXAMPLES / name).read_text(encoding="utf-8")) == codebook
+
+
+# The backend and coding API ----------------------------------------------------------------------
+
+EMPTY = inspect.Parameter.empty
+
+
+@pytest.mark.parametrize("name", BACKEND_NAMES + LEDGER_NAMES)
+def test_every_backend_and_ledger_name_is_exported(name: str) -> None:
+    assert name in reliacode.__all__
+    assert hasattr(reliacode, name)
+
+
+def test_code_keeps_its_parameters_and_adds_the_ledger_at_the_end() -> None:
+    assert parameters(code) == [
+        ("codebook", "POSITIONAL_OR_KEYWORD", EMPTY),
+        ("texts", "POSITIONAL_OR_KEYWORD", EMPTY),
+        ("backend", "KEYWORD_ONLY", EMPTY),
+        ("variables", "KEYWORD_ONLY", None),
+        ("attempts", "KEYWORD_ONLY", 2),
+        ("ledger", "KEYWORD_ONLY", None),
+    ]
+
+
+def test_the_backends_keep_their_parameters() -> None:
+    assert parameters(OpenAICompatibleBackend.__init__) == [
+        ("self", "POSITIONAL_OR_KEYWORD", EMPTY),
+        ("base_url", "POSITIONAL_OR_KEYWORD", EMPTY),
+        ("model", "POSITIONAL_OR_KEYWORD", EMPTY),
+        ("api_key_env", "KEYWORD_ONLY", None),
+        ("timeout", "KEYWORD_ONLY", 60.0),
+        ("max_retries", "KEYWORD_ONLY", 3),
+        ("temperature", "KEYWORD_ONLY", 0.0),
+        ("seed", "KEYWORD_ONLY", None),
+        ("max_tokens", "KEYWORD_ONLY", None),
+        ("structured_output", "KEYWORD_ONLY", True),
+        ("transport", "KEYWORD_ONLY", None),
+        ("sleep", "KEYWORD_ONLY", time.sleep),
+        ("clock", "KEYWORD_ONLY", time.perf_counter),
+    ]
+    assert parameters(FakeBackend.__init__) == [
+        ("self", "POSITIONAL_OR_KEYWORD", EMPTY),
+        ("answers", "POSITIONAL_OR_KEYWORD", EMPTY),
+        ("model", "KEYWORD_ONLY", "fake-model"),
+        ("tokens", "KEYWORD_ONLY", None),
+    ]
+
+
+def test_the_backend_and_coding_records_keep_their_fields() -> None:
+    assert list(Response.model_fields) == [
+        "text",
+        "model",
+        "parameters",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens",
+        "finish_reason",
+        "response_id",
+        "request_id",
+        "system_fingerprint",
+        "latency_seconds",
+        "attempts",
+        "created_at",
+    ]
+    assert list(RequestParameters.model_fields) == [
+        "endpoint",
+        "model",
+        "temperature",
+        "seed",
+        "max_tokens",
+        "structured_output",
+    ]
+    assert list(CodingResult.model_fields) == [
+        "unit",
+        "variable",
+        "code",
+        "missing_reason",
+        "answers",
+        "responses",
+        "codebook_hash",
+        "prompt_hash",
+    ]
+    assert list(CodingRun.model_fields) == [
+        "codebook_name",
+        "codebook_version",
+        "codebook_hash",
+        "prompts",
+        "results",
+        "started_at",
+        "finished_at",
+        "reliacode_version",
+    ]
+
+
+def test_a_run_with_a_ledger_codes_exactly_as_a_run_without_one(tmp_path: Path) -> None:
+    codebook = load_codebook(EXAMPLES / "news_frames.yaml")
+    texts = ["The council raised the bus fare.", "A storm closed the harbor for a week."]
+    script = ['{"code": "economic"}', "not json", '{"code": "government"}'] * 2
+
+    def run(ledger: Ledger | None) -> tuple[CodingRun, FakeBackend]:
+        backend = FakeBackend(script)
+        return code(codebook, texts, backend=backend, ledger=ledger), backend
+
+    plain, plain_backend = run(None)
+    recorded, recorded_backend = run(Ledger(tmp_path / "ledger.jsonl"))
+    assert plain_backend.calls == recorded_backend.calls
+    assert plain_backend.json_schemas == recorded_backend.json_schemas
+    assert plain.table() == recorded.table()
+    assert plain.prompts == recorded.prompts
+    assert plain.codebook_hash == recorded.codebook_hash
+    for without, with_ledger in zip(plain.results, recorded.results, strict=True):
+        assert without.answers == with_ledger.answers
+        assert without.missing_reason == with_ledger.missing_reason
+        assert without.prompt_hash == with_ledger.prompt_hash
+        assert [r.text for r in without.responses] == [r.text for r in with_ledger.responses]
