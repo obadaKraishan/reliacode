@@ -1,13 +1,63 @@
-"""Shared test helpers: paths, small YAML snippets, a mock HTTP server and a test clock."""
+"""Shared test helpers: paths, small YAML snippets, a mock HTTP server, a test clock, and
+answers and ledger lines to build records from."""
 
 import json
 import textwrap
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
 
+from reliacode.backends import RequestParameters, Response
+
 FIXTURES = Path(__file__).parent / "fixtures"
 EXAMPLES = Path(__file__).parent.parent / "examples" / "codebooks"
+
+#: Invented hashes for ledger lines that are not tied to a real codebook or prompt.
+CODEBOOK_HASH = "sha256:" + "c" * 64
+PROMPT_HASH = "sha256:" + "d" * 64
+#: A fixed time for records, so tests do not depend on the clock.
+NOON = datetime(2026, 11, 19, 12, 0, tzinfo=timezone.utc)
+
+
+def response(
+    text: str = '{"code": "positive"}',
+    *,
+    model: str = "example-model",
+    prompt_tokens: int | None = 40,
+    completion_tokens: int | None = 6,
+    **fields: object,
+) -> Response:
+    """An answer as a backend returns it, with invented counts. ``fields`` replace the rest."""
+    values: dict[str, object] = {
+        "text": text,
+        "model": model,
+        "parameters": RequestParameters(
+            endpoint="http://localhost:11434/v1/chat/completions",
+            model=model,
+            temperature=0.0,
+            structured_output=True,
+        ),
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "finish_reason": "stop",
+        "latency_seconds": 0.25,
+        "created_at": NOON,
+    }
+    values.update(fields)
+    return Response.model_validate(values)
+
+
+class TickingClock:
+    """A UTC clock the tests control: every reading is ``step`` seconds after the last one."""
+
+    def __init__(self, start: datetime = NOON, step: float = 1.0) -> None:
+        self.now = start
+        self.step = timedelta(seconds=step)
+
+    def __call__(self) -> datetime:
+        self.now += self.step
+        return self.now
 
 
 class NetworkBlockedError(RuntimeError):

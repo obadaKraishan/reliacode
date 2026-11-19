@@ -4,7 +4,7 @@ from datetime import timezone
 
 import pytest
 
-from reliacode.backends import Backend, FakeBackend, Response, check_messages
+from reliacode.backends import Backend, BackendError, FakeBackend, Response, check_messages
 
 USER = [{"role": "user", "content": "The council approved the new park."}]
 
@@ -96,3 +96,66 @@ def test_checked_messages_are_a_plain_copy() -> None:
     checked = check_messages(tuple(original))
     assert checked == original
     assert checked[0] is not original[0]
+
+
+# Scripted token counts, to test a budget without a server ----------------------------------------
+
+
+def test_one_pair_of_token_counts_is_reported_for_every_answer() -> None:
+    backend = FakeBackend(["a", "b"], tokens=(120, 8))
+    first, second = backend.complete(USER), backend.complete(USER)
+    assert (first.prompt_tokens, first.completion_tokens, first.total_tokens) == (120, 8, 128)
+    assert (second.prompt_tokens, second.completion_tokens) == (120, 8)
+
+
+def test_a_list_of_token_counts_is_used_in_order() -> None:
+    backend = FakeBackend(["a", "b", "c"], tokens=[(100, 5), None, (300, 7)])
+    replies = [backend.complete(USER) for _ in range(3)]
+    assert [(r.prompt_tokens, r.completion_tokens, r.total_tokens) for r in replies] == [
+        (100, 5, 105),
+        (None, None, None),
+        (300, 7, 307),
+    ]
+
+
+def test_token_counts_stay_in_step_with_scripted_errors() -> None:
+    backend = FakeBackend(
+        ["a", BackendError("Down.", reason="no_server"), "c"], tokens=[(1, 1), (2, 2), (3, 3)]
+    )
+    assert backend.complete(USER).prompt_tokens == 1
+    with pytest.raises(BackendError):
+        backend.complete(USER)
+    assert backend.complete(USER).prompt_tokens == 3
+
+
+def test_a_function_can_make_the_token_counts() -> None:
+    def count(messages: list[dict[str, str]]) -> tuple[int, int]:
+        return sum(len(m["content"]) for m in messages), 4
+
+    reply = FakeBackend(["a"], tokens=count).complete(USER)
+    assert (reply.prompt_tokens, reply.completion_tokens) == (len(USER[0]["content"]), 4)
+    assert FakeBackend(["a"], tokens=lambda messages: None).complete(USER).prompt_tokens is None
+
+
+def test_a_function_must_return_a_pair() -> None:
+    backend = FakeBackend(["a"], tokens=lambda messages: 12)  # type: ignore[arg-type,return-value]
+    with pytest.raises(TypeError, match="should return a pair or None"):
+        backend.complete(USER)
+
+
+def test_running_out_of_token_counts_is_explained() -> None:
+    backend = FakeBackend(["a", "b"], tokens=[(1, 1)])
+    backend.complete(USER)
+    with pytest.raises(
+        RuntimeError, match="no token counts left: it was given 1 and this is call 2"
+    ):
+        backend.complete(USER)
+
+
+@pytest.mark.parametrize(
+    "tokens",
+    [(120,), (120, 8, 3), (-1, 8), (True, 8), (1.5, 8), [120, 8], "120,8", 120, [(1, 1), (2,)]],
+)
+def test_token_counts_that_cannot_be_used_are_refused(tokens: object) -> None:
+    with pytest.raises(TypeError, match=r"a pair \(prompt_tokens, completion_tokens\)"):
+        FakeBackend(["a"], tokens=tokens)  # type: ignore[arg-type]

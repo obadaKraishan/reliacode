@@ -17,13 +17,14 @@ import logging
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
-from typing import Any
+from typing import Any, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from reliacode.backends import Backend, RequestParameters, Response, utc_now
 from reliacode.codebook import Codebook, Variable
 from reliacode.errors import describe
+from reliacode.ledger import BudgetError, Ledger, LedgerEntry
 
 logger = logging.getLogger(__name__)
 
@@ -284,6 +285,7 @@ def code(
     backend: Backend,
     variables: Sequence[str] | str | None = None,
     attempts: int = 2,
+    ledger: Ledger | None = None,
 ) -> CodingRun:
     """Code every text for every variable of the codebook (or the ones named) with ``backend``.
 
@@ -303,11 +305,17 @@ def code(
             variables are coded by default.
         attempts: the most answers to ask for, for each text and variable. The default, 2,
             allows one more try after an answer that cannot be used.
+        ledger: a :class:`~reliacode.Ledger` that records every call, including second asks
+            and failures, and keeps its budget. Without one, nothing is recorded.
 
     Raises:
         BackendError: the backend could not answer, for example because no server is running.
             The run stops there, since the requests that follow would fail the same way.
-        TypeError, ValueError: ``texts``, ``variables`` or ``attempts`` are not as described.
+        BudgetError: the ledger's budget refused a call. The run stops before that call, and
+            the error's ``run`` holds the results finished before the stop. A cost limit for
+            a model with no price is refused before the first call, with no ``run``.
+        TypeError, ValueError: ``texts``, ``variables``, ``attempts`` or ``ledger`` are not as
+            described.
     """
     if not isinstance(codebook, Codebook):
         raise TypeError(
@@ -322,18 +330,39 @@ def code(
         raise ValueError(
             f"attempts should be a whole number of at least 1, but it is {attempts!r}."
         )
+    if ledger is not None and not isinstance(ledger, Ledger):
+        raise TypeError(
+            'ledger should be a reliacode Ledger, such as Ledger("ledger.jsonl"), but it is '
+            f"{describe(ledger)}."
+        )
     units = _units(texts)
     names = _variable_names(codebook, variables)
     prompts = {name: build_prompt(codebook, name) for name in names}
     codebook_hash = codebook.content_hash()
+    model = getattr(backend, "model", None)
+    model = model if isinstance(model, str) else None
+    if ledger is not None:
+        ledger.check_price(model)
     started = utc_now()
-    results = [
-        _code_one(
-            backend, codebook.variable(name), prompts[name], unit, text, attempts, codebook_hash
-        )
-        for unit, text in units
-        for name in names
-    ]
+    results: list[CodingResult] = []
+    try:
+        for unit, text in units:
+            for name in names:
+                work = _Work(codebook.variable(name), prompts[name], codebook_hash, ledger, model)
+                results.append(_code_one(backend, work, unit, text, attempts))
+    except BudgetError as error:
+        error.run = _run(codebook, codebook_hash, prompts, results, started)
+        raise
+    return _run(codebook, codebook_hash, prompts, results, started)
+
+
+def _run(
+    codebook: Codebook,
+    codebook_hash: str,
+    prompts: Mapping[str, Prompt],
+    results: Sequence[CodingResult],
+    started: datetime,
+) -> CodingRun:
     from reliacode import __version__  # here, because the package imports this module
 
     return CodingRun(
@@ -348,29 +377,58 @@ def code(
     )
 
 
+class _Work(NamedTuple):
+    """What every call for one variable shares: the variable, its prompt and the ledger."""
+
+    variable: Variable
+    prompt: Prompt
+    codebook_hash: str
+    ledger: Ledger | None
+    model: str | None
+
+
 def _code_one(
-    backend: Backend,
-    variable: Variable,
-    prompt: Prompt,
-    unit: UnitId,
-    text: str,
-    attempts: int,
-    codebook_hash: str,
+    backend: Backend, work: _Work, unit: UnitId, text: str, attempts: int
 ) -> CodingResult:
+    variable, prompt, ledger = work.variable, work.prompt, work.ledger
     messages = prompt.messages(text)
     answers: list[str] = []
     responses: list[Response] = []
     problem: str | None = None
     for attempt in range(1, attempts + 1):
-        response = backend.complete(messages, json_schema=prompt.json_schema)
-        if not isinstance(response, Response):
-            raise TypeError(
-                "The backend's complete() should return a reliacode Response, but it returned "
-                f"{describe(response)}."
-            )
+        if ledger is not None:
+            ledger.check()
+        try:
+            response = backend.complete(messages, json_schema=prompt.json_schema)
+            if not isinstance(response, Response):
+                raise TypeError(
+                    "The backend's complete() should return a reliacode Response, but it "
+                    f"returned {describe(response)}."
+                )
+        except Exception as error:
+            if ledger is not None:
+                ledger.record(
+                    LedgerEntry.from_failure(
+                        error, model=work.model, text=text, ask=attempt, **_ties(work, ledger)
+                    )
+                )
+            raise
         responses.append(response)
         answers.append(response.text)
         value, problem = check_answer(response.text, variable.codes)
+        if ledger is not None:
+            outcome = (
+                "answered"
+                if value is not None
+                else "asked_again"
+                if attempt < attempts
+                else "missing"
+            )
+            ledger.record(
+                LedgerEntry.from_response(
+                    response, outcome=outcome, text=text, ask=attempt, **_ties(work, ledger)
+                )
+            )
         if value is not None:
             break
         logger.info(
@@ -403,9 +461,19 @@ def _code_one(
         missing_reason=reason,
         answers=tuple(answers),
         responses=tuple(responses),
-        codebook_hash=codebook_hash,
+        codebook_hash=work.codebook_hash,
         prompt_hash=prompt.hash,
     )
+
+
+def _ties(work: _Work, ledger: Ledger) -> dict[str, Any]:
+    """What ties a ledger line to the work: the variable, the hashes and the time."""
+    return {
+        "variable": work.variable.name,
+        "codebook_hash": work.codebook_hash,
+        "prompt_hash": work.prompt.hash,
+        "at": ledger.clock(),
+    }
 
 
 def _units(texts: object) -> list[tuple[UnitId, str]]:
