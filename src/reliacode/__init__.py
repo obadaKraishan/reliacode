@@ -20,7 +20,7 @@ from reliacode.codebook import (
 )
 from reliacode.coding import CodingResult, CodingRun, code
 from reliacode.errors import CodebookError, Problem
-from reliacode.ledger import LedgerEntry
+from reliacode.ledger import Ledger, LedgerEntry, LedgerError, read_ledger
 
 try:
     __version__ = version("reliacode")
@@ -37,7 +37,9 @@ __all__ = [
     "CodingRun",
     "Example",
     "FakeBackend",
+    "Ledger",
     "LedgerEntry",
+    "LedgerError",
     "OpenAICompatibleBackend",
     "Problem",
     "RequestParameters",
@@ -47,4 +49,5 @@ __all__ = [
     "code",
     "load_codebook",
     "parse_codebook",
+    "read_ledger",
 ]

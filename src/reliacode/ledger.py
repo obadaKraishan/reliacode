@@ -9,7 +9,11 @@ shared even when the texts cannot.
 """
 
 import hashlib
+import json
+import os
+from collections.abc import Callable
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Literal
 
 from pydantic import (
@@ -17,6 +21,7 @@ from pydantic import (
     ConfigDict,
     Field,
     NonNegativeInt,
+    ValidationError,
     field_validator,
     model_validator,
 )
@@ -207,3 +212,197 @@ class LedgerEntry(_Record):
             text_hash=hash_text(text),
             text_length=len(text),
         )
+
+
+#: How many unreadable lines a LedgerError lists before it only counts the rest.
+_LISTED = 10
+
+
+class LedgerError(ValueError):
+    """A ledger file has lines that cannot be read. The message lists each one by its number.
+
+    Attributes:
+        path: the ledger file.
+        problems: ``(line number, what is wrong)`` for every line that cannot be read.
+    """
+
+    def __init__(self, path: Path, problems: list[tuple[int, str]]) -> None:
+        self.path = path
+        self.problems = tuple(problems)
+        count = len(problems)
+        lines = [
+            f"The ledger file {path} has {count} {'line' if count == 1 else 'lines'} that cannot "
+            "be read:"
+        ]
+        lines += [f"  Line {number}: {problem}" for number, problem in problems[:_LISTED]]
+        if count > _LISTED:
+            lines.append(f"  ... and {count - _LISTED} more.")
+        lines.append(
+            "Keep a copy of the file, then fix or remove these lines in a text editor. reliacode "
+            "only adds lines to a ledger and never changes the ones already there."
+        )
+        super().__init__("\n".join(lines))
+
+
+def read_ledger(path: str | os.PathLike[str]) -> tuple[LedgerEntry, ...]:
+    """Read every line of a ledger file, in the order the calls were made.
+
+    Blank lines are skipped. Every other line must be a ledger line.
+
+    Raises:
+        FileNotFoundError: there is no file at ``path``.
+        LedgerError: some lines cannot be read. The error lists each one with its line number,
+            so that no call is ever dropped without notice.
+    """
+    path = _checked_path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"There is no ledger file at {path}. Check the path.")
+    entries: list[LedgerEntry] = []
+    problems: list[tuple[int, str]] = []
+    with path.open("rb") as file:
+        for number, raw in enumerate(file, 1):
+            entry, problem = _read_line(raw)
+            if problem is not None:
+                problems.append((number, problem))
+            elif entry is not None:
+                entries.append(entry)
+    if problems:
+        raise LedgerError(path, problems)
+    return tuple(entries)
+
+
+def _read_line(raw: bytes) -> tuple[LedgerEntry | None, str | None]:
+    """One line of the file as a ledger line, or what is wrong with it. A blank line is neither."""
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None, "it is not UTF-8 text."
+    if not text.strip():
+        return None, None
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return None, (
+            "it is not a complete JSON object. A line cut off when a program stopped while "
+            "writing looks like this."
+        )
+    if not isinstance(data, dict):
+        return None, "it is not a JSON object, so it is not a ledger line."
+    version = data.get("schema_version")
+    if isinstance(version, int) and not isinstance(version, bool) and version > LEDGER_VERSION:
+        return None, (
+            f"it was written by a newer version of reliacode (ledger version {version}). Update "
+            "reliacode to read it."
+        )
+    try:
+        return LedgerEntry.model_validate(data), None
+    except ValidationError as exc:
+        return None, _validation_problem(exc)
+
+
+def _validation_problem(exc: ValidationError) -> str:
+    errors = exc.errors(include_url=False)
+    parts = []
+    for error in errors[:3]:
+        field = ".".join(str(part) for part in error["loc"])
+        message = error["msg"].removeprefix("Value error, ")
+        parts.append(f"{field}: {message}" if field else message)
+    more = f" (and {len(errors) - 3} more)" if len(errors) > 3 else ""
+    return f"it is not a valid ledger line. {'; '.join(parts)}{more}."
+
+
+def _checked_path(path: object) -> Path:
+    if isinstance(path, str) and path.strip():
+        return Path(path)
+    if isinstance(path, os.PathLike):
+        return Path(path)
+    raise TypeError('The ledger path should be a file name, such as "ledger.jsonl".')
+
+
+class Ledger:
+    """A ledger file: one JSON line for every call to a model, added as each call ends.
+
+    Pass a ledger to :func:`reliacode.code` and every call it makes is recorded, including
+    second asks and failures::
+
+        ledger = Ledger("ledger.jsonl")
+        run = code(codebook, texts, backend=backend, ledger=ledger)
+
+    The file is created if it does not exist. Lines already in it are kept, and new lines are
+    added at the end, each written and flushed as its call ends, so a run that stops loses no
+    line. reliacode never rewrites a line. Only one program should write to a ledger file at a
+    time: two writers can mix their lines.
+
+    Args:
+        path: the ledger file, such as ``"ledger.jsonl"``. Its folder must exist.
+        clock: a function that returns the current time in UTC, used for the time of each
+            line. Tests replace it.
+
+    Raises:
+        LedgerError: the file has lines that cannot be read. New lines are never added after
+            a line that cannot be read.
+    """
+
+    def __init__(
+        self,
+        path: str | os.PathLike[str],
+        *,
+        clock: Callable[[], datetime] = utc_now,
+    ) -> None:
+        self.path = _checked_path(path)
+        self.clock = clock
+        if self.path.is_dir():
+            raise ValueError(
+                f"The ledger path {self.path} is a folder. Give a file name inside it, such as "
+                f"{self.path / 'ledger.jsonl'}."
+            )
+        if not self.path.parent.is_dir():
+            raise FileNotFoundError(
+                f"The folder for the ledger file does not exist: {self.path.parent}. Create it "
+                "first, or choose another path."
+            )
+        self._calls = 0
+        self._needs_line_end = False
+        if self.path.exists():
+            for entry in read_ledger(self.path):
+                self._count(entry)
+            self._needs_line_end = _ends_without_line_end(self.path)
+        self.path.touch()
+
+    @property
+    def calls(self) -> int:
+        """The number of calls recorded in the file, including those from earlier runs."""
+        return self._calls
+
+    def record(self, entry: LedgerEntry) -> None:
+        """Add one line to the end of the file and flush it to disk."""
+        if not isinstance(entry, LedgerEntry):
+            raise TypeError("A ledger records LedgerEntry lines only.")
+        line = json.dumps(entry.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":"))
+        with self.path.open("a", encoding="utf-8", newline="\n") as file:
+            if self._needs_line_end:
+                file.write("\n")
+            file.write(line + "\n")
+            file.flush()
+        self._needs_line_end = False
+        self._count(entry)
+
+    def entries(self) -> tuple[LedgerEntry, ...]:
+        """Every line in the file, read again from disk."""
+        return read_ledger(self.path)
+
+    def _count(self, entry: LedgerEntry) -> None:
+        self._calls += 1
+
+    def __repr__(self) -> str:
+        return f"Ledger({str(self.path)!r}, calls={self._calls})"
+
+
+def _ends_without_line_end(path: Path) -> bool:
+    """True when the file's last line has no line end, so a new line must start with one."""
+    with path.open("rb") as file:
+        file.seek(0, os.SEEK_END)
+        if file.tell() == 0:
+            return False
+        file.seek(-1, os.SEEK_END)
+        return file.read(1) != b"\n"
