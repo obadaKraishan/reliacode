@@ -65,6 +65,33 @@ All notable changes to this project are recorded here. The format follows
   of requests, and has clear timeouts and errors to turn into plain words. It brings anyio,
   certifi, h11, httpcore and idna.
 - The tests block all network access, so no test can reach a real server.
+- Token and cost ledger:
+  - `reliacode.Ledger(path, prices=..., budget=...)` records every call of `code()` (pass
+    `ledger=ledger`), second asks and failures included. The record is a JSON Lines file with
+    one line per call, flushed as each call ends and never rewritten.
+  - `reliacode.LedgerEntry` is one line, ledger version 1. It holds the time, the outcome, the
+    model asked for and returned, the settings, the token counts the server reported, the
+    latency, the ids, the tries, the kind of problem for a failed call, and the codebook hash,
+    prompt hash, variable, text hash and text length. It never holds the coded text, the
+    messages, the answer, the key or a server's error message.
+  - A token count the server did not report stays missing, never zero and never estimated.
+  - `reliacode.read_ledger(path)` reads a ledger back. `reliacode.LedgerError` lists every line
+    that cannot be read, by its number.
+  - `reliacode.PriceTable` and `reliacode.ModelPrice`: the prices the user read, with a currency
+    and a date. The package ships no prices. A call with a missing count, or a model with no
+    price, has no cost; a local model listed at 0 costs 0 and its tokens still count.
+  - `reliacode.Budget` sets a limit on cost, tokens or calls, checked before each call. When a
+    call would pass the limit, `reliacode.BudgetError` says what the limit is, what has been
+    used and how to raise it, and carries the results finished before the stop. A limit that
+    cannot be kept (a cost limit for a model with no price, or a token limit after an answer
+    without counts) is refused.
+  - `reliacode.summarize()` and `Ledger.summary()` return a `reliacode.LedgerSummary` with totals
+    in all, by model and by variable, and per-text averages. Each total says how many calls it
+    could not count. The summary also gives the first and last times, the hashes seen and the
+    prices used. `to_csv()` and `to_json()` export it.
+  - `FakeBackend(..., tokens=...)` reports scripted token counts, to test a budget.
+  - `docs/ledger.md`: the file, what it never holds, prices, budgets, the summary and reporting
+    cost in a paper.
 
 ### Changed
 - The example codebooks were revised after the author's review, so **both content hashes

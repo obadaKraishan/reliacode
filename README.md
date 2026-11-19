@@ -67,12 +67,33 @@ content hash, the prompt hash and the time. Hosted services work the same way, w
 read from an environment variable; text sent to them leaves your computer. See
 [docs/backends.md](docs/backends.md).
 
+## Ledger
+A ledger records every call `code()` makes: the model, the input and output tokens the server
+reported, the latency, the tries and the outcome, tied to the codebook hash, the prompt hash and
+a hash of the text. It never holds the coded text, the model's answer or the API key. With
+prices you supply (reliacode ships none), it adds up the cost, and a budget stops a run before
+it passes a limit:
+
+```python
+prices = reliacode.PriceTable(
+    currency="USD",
+    read_on="2026-11-19",
+    prices={"example-model": reliacode.ModelPrice(input_per_million=0.5, output_per_million=1.5)},
+)  # an invented model and invented prices
+ledger = reliacode.Ledger("ledger.jsonl", prices=prices, budget=reliacode.Budget(cost_limit=5))
+run = reliacode.code(codebook, texts, backend=backend, ledger=ledger)
+ledger.summary().total  # calls, tokens in and out, cost, and the calls that could not be counted
+```
+
+A count the server did not report stays missing and is never taken as zero. See
+[docs/ledger.md](docs/ledger.md).
+
 ## Planned modules (v0.1)
 | Module | What it does | Status |
 |---|---|---|
 | Codebook | YAML codebooks validated with pydantic, with plain-language error messages and a stable content hash | done |
 | Backend adapter | One `code()` runner for any OpenAI-compatible endpoint | done ([#1](https://github.com/obadaKraishan/reliacode/issues/1)) |
-| Cost ledger | Tokens, cost and timing for every call | planned ([#2](https://github.com/obadaKraishan/reliacode/issues/2)) |
+| Cost ledger | Tokens, cost and timing for every call | done ([#2](https://github.com/obadaKraishan/reliacode/issues/2)) |
 | Reliability | Krippendorff's alpha and Cohen's kappa with bootstrap CIs | planned ([#3](https://github.com/obadaKraishan/reliacode/issues/3)) |
 | PPI | Prediction-powered inference for prevalence estimates | planned ([#4](https://github.com/obadaKraishan/reliacode/issues/4)) |
 | Methods exporter | A Markdown and LaTeX methods paragraph | planned ([#5](https://github.com/obadaKraishan/reliacode/issues/5)) |

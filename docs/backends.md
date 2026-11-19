@@ -164,7 +164,9 @@ run.table()  # [{'unit': 0, 'dominant_frame': 'economic', 'responsibility_target
 
 Answers are used in order. A function of the messages can make the answers instead, and an
 exception in the list (such as a `BackendError`) is raised in place of an answer, to test how
-your code handles problems. `backend.calls` keeps every request's messages.
+your code handles problems. `backend.calls` keeps every request's messages. With
+`tokens=(120, 8)`, the fake also reports token counts, to test a budget (see
+[ledger.md](ledger.md)).
 
 Any object with a `complete(messages, *, json_schema=None)` method that returns a
 `reliacode.Response` can be used as a backend.
