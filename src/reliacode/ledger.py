@@ -13,7 +13,7 @@ import json
 import os
 import re
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -215,6 +215,81 @@ class LedgerEntry(_Record):
             text_hash=hash_text(text),
             text_length=len(text),
         )
+
+
+class ModelPrice(_Record):
+    """What one model costs: the price of a million input tokens and of a million output tokens.
+
+    Write 0 for both for a local model that costs nothing to run, so that its calls cost 0 and
+    their tokens are still counted.
+    """
+
+    input_per_million: float = Field(ge=0, allow_inf_nan=False)
+    output_per_million: float = Field(ge=0, allow_inf_nan=False)
+
+
+class PriceTable(_Record):
+    """The prices of the models you use, in one currency, as you read them on one day.
+
+    reliacode ships no prices. Prices change, and a wrong price built into a package is worse
+    than none, so you write down the prices you read and the date you read them::
+
+        prices = PriceTable(
+            currency="USD",
+            read_on="2026-11-19",
+            prices={
+                "example-hosted-model": ModelPrice(input_per_million=0.50, output_per_million=1.50),
+                "example-local-model": ModelPrice(input_per_million=0, output_per_million=0),
+            },
+        )
+
+    (The model names and prices above are invented.) A model's price is looked up under the
+    name that was asked for, and then under the name the server returned. A model that is not
+    in the table has its tokens counted and no cost.
+    """
+
+    currency: str = Field(min_length=1)
+    read_on: date
+    prices: dict[str, ModelPrice]
+
+    @field_validator("currency")
+    @classmethod
+    def _currency(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError('give the currency of the prices, such as "USD" or "EUR"')
+        return value
+
+    @field_validator("prices")
+    @classmethod
+    def _models(cls, value: dict[str, ModelPrice]) -> dict[str, ModelPrice]:
+        if not value:
+            raise ValueError("the price table lists no model; add the price of each model used")
+        if any(not name.strip() for name in value):
+            raise ValueError("a model in the price table has an empty name")
+        return value
+
+    def price(self, model: str | None) -> ModelPrice | None:
+        """The price of ``model``, or ``None`` when the table has none."""
+        return self.prices.get(model) if model is not None else None
+
+    def price_of(self, entry: LedgerEntry) -> ModelPrice | None:
+        """The price for a ledger line: under the model asked for, else the model returned."""
+        return self.price(entry.model_requested) or self.price(entry.model_returned)
+
+    def cost(self, entry: LedgerEntry) -> float | None:
+        """What a call cost, in the table's currency.
+
+        It is ``None``, never zero, when the server did not report both token counts or the
+        table has no price for the model. A failed call has no counts, so it has no cost.
+        """
+        price = self.price_of(entry)
+        if price is None or entry.prompt_tokens is None or entry.completion_tokens is None:
+            return None
+        return (
+            entry.prompt_tokens * price.input_per_million
+            + entry.completion_tokens * price.output_per_million
+        ) / 1_000_000
 
 
 #: How many unreadable lines a LedgerError lists before it only counts the rest.
