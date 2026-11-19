@@ -11,6 +11,7 @@ shared even when the texts cannot.
 import hashlib
 import json
 import os
+import re
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,6 +39,8 @@ LEDGER_VERSION = 1
 Outcome = Literal["answered", "asked_again", "missing", "failed"]
 
 _HASH = r"^sha256:[0-9a-f]{64}$"
+#: What a field name looks like, so that an error never quotes anything else from a line.
+_FIELD_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,39}")
 
 
 def hash_text(text: str) -> str:
@@ -301,10 +304,13 @@ def _read_line(raw: bytes) -> tuple[LedgerEntry | None, str | None]:
 
 
 def _validation_problem(exc: ValidationError) -> str:
-    errors = exc.errors(include_url=False)
+    """What is wrong with a line, without quoting any value from it."""
+    errors = exc.errors(include_url=False, include_input=False, include_context=False)
     parts = []
     for error in errors[:3]:
         field = ".".join(str(part) for part in error["loc"])
+        if error["type"] == "extra_forbidden" and not _FIELD_NAME.fullmatch(field):
+            field = "a field"  # a name that does not look like one is not quoted either
         message = error["msg"].removeprefix("Value error, ")
         parts.append(f"{field}: {message}" if field else message)
     more = f" (and {len(errors) - 3} more)" if len(errors) > 3 else ""
