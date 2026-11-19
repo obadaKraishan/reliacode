@@ -21,6 +21,8 @@ from reliacode.codebook import (
 from reliacode.coding import CodingResult, CodingRun, code
 from reliacode.errors import CodebookError, Problem
 from reliacode.ledger import (
+    Budget,
+    BudgetError,
     Ledger,
     LedgerEntry,
     LedgerError,
@@ -37,6 +39,8 @@ except PackageNotFoundError:  # pragma: no cover - only when running from an uni
 __all__ = [
     "Backend",
     "BackendError",
+    "Budget",
+    "BudgetError",
     "Category",
     "Codebook",
     "CodebookError",

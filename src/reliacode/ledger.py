@@ -292,6 +292,62 @@ class PriceTable(_Record):
         ) / 1_000_000
 
 
+class Budget(_Record):
+    """Limits that the calls in a ledger may not pass: a cost, a number of tokens, a number of
+    calls, or any of them together.
+
+    The ledger checks the budget before every call, and refuses the call that would pass a
+    limit with a :class:`BudgetError`. The budget covers every call in the ledger file,
+    including calls recorded by earlier runs.
+
+    Args:
+        cost_limit: the most the calls may cost, in the currency of the ledger's price table.
+        token_limit: the most tokens the calls may use, input and output together.
+        call_limit: the most calls that may be made.
+    """
+
+    cost_limit: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    token_limit: int | None = Field(default=None, gt=0)
+    call_limit: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def _has_a_limit(self) -> "Budget":
+        if self.cost_limit is None and self.token_limit is None and self.call_limit is None:
+            raise ValueError(
+                "a budget needs at least one limit, such as Budget(cost_limit=5) or "
+                "Budget(call_limit=1000)"
+            )
+        return self
+
+
+class BudgetError(RuntimeError):
+    """The budget stopped a call before it was made, or it cannot be kept.
+
+    Attributes:
+        limit: which limit stopped the call: ``"cost"``, ``"tokens"`` or ``"calls"``.
+        allowed: the limit itself.
+        used: what the calls in the ledger have used so far.
+        run: when :func:`reliacode.code` was stopped, a :class:`~reliacode.CodingRun` with the
+            results finished before the stop, so codes already paid for are not lost.
+            Otherwise ``None``.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        limit: Literal["cost", "tokens", "calls"],
+        allowed: float,
+        used: float,
+        run: object = None,
+    ) -> None:
+        super().__init__(message)
+        self.limit = limit
+        self.allowed = allowed
+        self.used = used
+        self.run = run
+
+
 #: How many unreadable lines a LedgerError lists before it only counts the rest.
 _LISTED = 10
 
@@ -406,7 +462,7 @@ class Ledger:
     Pass a ledger to :func:`reliacode.code` and every call it makes is recorded, including
     second asks and failures::
 
-        ledger = Ledger("ledger.jsonl")
+        ledger = Ledger("ledger.jsonl", prices=prices, budget=Budget(cost_limit=5))
         run = code(codebook, texts, backend=backend, ledger=ledger)
 
     The file is created if it does not exist. Lines already in it are kept, and new lines are
@@ -416,21 +472,39 @@ class Ledger:
 
     Args:
         path: the ledger file, such as ``"ledger.jsonl"``. Its folder must exist.
+        prices: the :class:`PriceTable` that gives each call its cost. Without one, calls have
+            tokens and no cost.
+        budget: the :class:`Budget` to keep. It covers every call in the file.
         clock: a function that returns the current time in UTC, used for the time of each
             line. Tests replace it.
 
     Raises:
         LedgerError: the file has lines that cannot be read. New lines are never added after
             a line that cannot be read.
+        ValueError: the budget has a cost limit but there is no price table.
     """
 
     def __init__(
         self,
         path: str | os.PathLike[str],
         *,
+        prices: PriceTable | None = None,
+        budget: Budget | None = None,
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
         self.path = _checked_path(path)
+        if prices is not None and not isinstance(prices, PriceTable):
+            raise TypeError("prices should be a PriceTable(currency=..., read_on=..., prices=...).")
+        if budget is not None and not isinstance(budget, Budget):
+            raise TypeError("budget should be a Budget, such as Budget(cost_limit=5).")
+        if budget is not None and budget.cost_limit is not None and prices is None:
+            raise ValueError(
+                "The budget has a cost limit, but the ledger has no prices, so the cost of a "
+                "call cannot be known. Pass the prices you use, as in Ledger(path, prices="
+                "PriceTable(...), budget=...), or use a token or call limit instead."
+            )
+        self.prices = prices
+        self.budget = budget
         self.clock = clock
         if self.path.is_dir():
             raise ValueError(
@@ -443,6 +517,13 @@ class Ledger:
                 "first, or choose another path."
             )
         self._calls = 0
+        self._tokens = 0
+        self._cost = 0.0
+        self._largest_tokens = 0
+        self._largest_cost = 0.0
+        #: The first answered call without both token counts, and the first without a price.
+        self._without_tokens: tuple[int, LedgerEntry] | None = None
+        self._without_price: tuple[int, LedgerEntry] | None = None
         self._needs_line_end = False
         if self.path.exists():
             for entry in read_ledger(self.path):
@@ -472,11 +553,139 @@ class Ledger:
         """Every line in the file, read again from disk."""
         return read_ledger(self.path)
 
+    def check(self) -> None:
+        """Refuse the next call if it would pass a limit of the budget. Run it before each call.
+
+        A call's size is not known before it is made, so the next call is taken to be as large
+        as the largest call so far. The first call is made unless a limit is already reached.
+
+        Raises:
+            BudgetError: the next call would pass a limit, or a limit cannot be kept because
+                a call had no token counts or its model has no price.
+        """
+        budget = self.budget
+        if budget is None:
+            return
+        if budget.call_limit is not None and self._calls + 1 > budget.call_limit:
+            raise BudgetError(
+                f"The budget allows {budget.call_limit:,} calls, and the ledger {self.path} "
+                f"already has {self._calls:,}, so reliacode stopped before the next call. To "
+                "make more calls, raise call_limit in the Budget.",
+                limit="calls",
+                allowed=budget.call_limit,
+                used=self._calls,
+            )
+        if budget.token_limit is not None:
+            self._check_counted("token limit", f"{budget.token_limit:,}", "tokens")
+            if self._tokens + self._largest_tokens > budget.token_limit:
+                raise BudgetError(
+                    f"The next call could pass the token limit of {budget.token_limit:,}, so "
+                    f"reliacode stopped before it. The calls in the ledger {self.path} have used "
+                    f"{self._tokens:,} tokens (input and output together), and the largest one "
+                    f"used {self._largest_tokens:,}. To go on, raise token_limit in the Budget.",
+                    limit="tokens",
+                    allowed=budget.token_limit,
+                    used=self._tokens,
+                )
+        if budget.cost_limit is not None:
+            limit = self._amount(budget.cost_limit)
+            self._check_counted("cost limit", limit, "cost")
+            if self._without_price is not None:
+                number, entry = self._without_price
+                raise self._no_price(entry.model, f" (call {number:,} in the ledger {self.path})")
+            if self._cost + self._largest_cost > budget.cost_limit:
+                raise BudgetError(
+                    f"The next call could pass the cost limit of {limit}, so reliacode stopped "
+                    f"before it. The calls in the ledger {self.path} have cost "
+                    f"{self._amount(self._cost)} so far, and the largest one cost "
+                    f"{self._amount(self._largest_cost)}. To go on, raise cost_limit in the "
+                    "Budget.",
+                    limit="cost",
+                    allowed=budget.cost_limit,
+                    used=self._cost,
+                )
+
+    def check_price(self, model: str | None) -> None:
+        """Refuse a cost limit at the start of a run when the model to be used has no price.
+
+        Nothing is checked when ``model`` is ``None`` (not known) or there is no cost limit.
+
+        Raises:
+            BudgetError: the budget has a cost limit and the price table has no price for
+                ``model``.
+        """
+        if self.budget is None or self.budget.cost_limit is None or model is None:
+            return
+        if self.prices is not None and self.prices.price(model) is None:
+            raise self._no_price(model, "")
+
+    def _check_counted(self, name: str, limit: str, kind: Literal["cost", "tokens"]) -> None:
+        if self._without_tokens is None:
+            return
+        number, entry = self._without_tokens
+        fake = entry.parameters is not None and entry.parameters.endpoint == "fake"
+        hint = " FakeBackend reports token counts only when it is given tokens=..." if fake else ""
+        raise BudgetError(
+            f"The {name} of {limit} cannot be kept: the server reported no token counts for "
+            f'call {number:,} in the ledger {self.path} (model "{entry.model}"), so reliacode '
+            f"cannot tell what the calls use. Use a call limit instead, as in "
+            f"Budget(call_limit=1000), or a server that reports token counts.{hint}",
+            limit=kind,
+            allowed=self._limit(kind),
+            used=self._tokens if kind == "tokens" else self._cost,
+        )
+
+    def _no_price(self, model: str | None, where: str) -> BudgetError:
+        limit = self._limit("cost")
+        return BudgetError(
+            f"The cost limit of {self._amount(limit)} cannot be kept: the price table has no "
+            f'price for the model "{model}"{where}, so the cost of its calls is not known. Add '
+            "the model to the price table (write 0 for a local model that costs nothing), or "
+            "use a token or call limit instead.",
+            limit="cost",
+            allowed=limit,
+            used=self._cost,
+        )
+
+    def _limit(self, kind: Literal["cost", "tokens"]) -> float:
+        budget = self.budget
+        assert budget is not None  # only called while a budget is checked
+        value = budget.cost_limit if kind == "cost" else budget.token_limit
+        assert value is not None
+        return value
+
+    def _amount(self, value: float) -> str:
+        assert self.prices is not None  # a cost limit always comes with prices
+        return f"{_number(value)} {self.prices.currency}"
+
     def _count(self, entry: LedgerEntry) -> None:
         self._calls += 1
+        if entry.outcome == "failed":
+            return  # a failed call counts toward the call limit only
+        if entry.prompt_tokens is None or entry.completion_tokens is None:
+            self._without_tokens = self._without_tokens or (self._calls, entry)
+            return
+        tokens = entry.prompt_tokens + entry.completion_tokens
+        self._tokens += tokens
+        self._largest_tokens = max(self._largest_tokens, tokens)
+        if self.prices is None:
+            return
+        cost = self.prices.cost(entry)
+        if cost is None:
+            self._without_price = self._without_price or (self._calls, entry)
+            return
+        self._cost += cost
+        self._largest_cost = max(self._largest_cost, cost)
 
     def __repr__(self) -> str:
         return f"Ledger({str(self.path)!r}, calls={self._calls})"
+
+
+def _number(value: float) -> str:
+    """A cost written with as many decimals as it needs (up to 8) and at least 2."""
+    text = f"{value:,.8f}".rstrip("0")
+    whole, _, decimals = text.partition(".")
+    return f"{whole}.{decimals.ljust(2, '0')}"
 
 
 def _ends_without_line_end(path: Path) -> bool:
