@@ -149,6 +149,19 @@ def check_messages(messages: Sequence[Message]) -> list[dict[str, str]]:
 
 #: What a FakeBackend can be scripted with: answers in order, or a function of the messages.
 Script = Sequence[str | BaseException] | Callable[[list[dict[str, str]]], str]
+#: Token counts for a FakeBackend: one pair ``(prompt_tokens, completion_tokens)``.
+TokenCounts = tuple[int, int]
+#: What a FakeBackend's token counts can be scripted with: one pair for every answer, a list
+#: of pairs (or ``None``, for an answer without counts) used in order, or a function.
+TokenScript = (
+    TokenCounts
+    | Sequence[TokenCounts | None]
+    | Callable[[list[dict[str, str]]], TokenCounts | None]
+)
+_TOKENS_SHAPE = (
+    "tokens should be a pair (prompt_tokens, completion_tokens), such as (120, 8), a list of "
+    "pairs (or None) used in order, or a function of the messages that returns a pair."
+)
 
 
 class FakeBackend:
@@ -163,13 +176,18 @@ class FakeBackend:
             such as a :class:`BackendError`, is raised instead), or a function that takes the
             messages and returns the answer text. Both give the same answers on every run.
         model: the model name the fake reports.
+        tokens: token counts to report, to test a budget without a server: a pair
+            ``(prompt_tokens, completion_tokens)`` for every answer, such as ``(120, 8)``, a
+            list of pairs used in order (``None`` for an answer without counts), or a function
+            that takes the messages and returns a pair. Without it, every count is ``None``.
 
     Every call is kept in ``calls`` (the messages) and ``json_schemas`` (the schema passed, or
-    ``None``), so tests can check what was asked. Token counts are not known, so they stay
-    ``None`` in every :class:`Response`.
+    ``None``), so tests can check what was asked.
     """
 
-    def __init__(self, answers: Script, *, model: str = "fake-model") -> None:
+    def __init__(
+        self, answers: Script, *, model: str = "fake-model", tokens: TokenScript | None = None
+    ) -> None:
         if isinstance(answers, (str, bytes)):
             raise TypeError(
                 "answers should be a list of answers, such as [answer1, answer2], or a function. "
@@ -177,6 +195,7 @@ class FakeBackend:
             )
         self._answers = answers if callable(answers) else list(answers)
         self.model = model
+        self._tokens = _check_token_script(tokens)
         self.calls: list[list[dict[str, str]]] = []
         self.json_schemas: list[Mapping[str, Any] | None] = []
 
@@ -188,12 +207,17 @@ class FakeBackend:
         self.calls.append(checked)
         self.json_schemas.append(json_schema)
         text = self._next_answer(checked)
+        counts = self._next_tokens(checked)
+        prompt, completion = counts if counts is not None else (None, None)
         return Response(
             text=text,
             model=self.model,
             parameters=RequestParameters(
                 endpoint="fake", model=self.model, structured_output=json_schema is not None
             ),
+            prompt_tokens=prompt,
+            completion_tokens=completion,
+            total_tokens=prompt + completion if counts is not None else None,
             finish_reason="stop",
             latency_seconds=0.0,
             created_at=utc_now(),
@@ -218,8 +242,53 @@ class FakeBackend:
             raise TypeError(f"FakeBackend answers should be text, but one is {answer!r}.")
         return answer
 
+    def _next_tokens(self, messages: list[dict[str, str]]) -> TokenCounts | None:
+        script = self._tokens
+        if script is None:
+            return None
+        if callable(script):
+            counts = script(messages)
+            if counts is not None and not _is_token_pair(counts):
+                raise TypeError(
+                    f"The tokens function should return a pair or None. {_TOKENS_SHAPE}"
+                )
+            return counts
+        if isinstance(script, tuple):
+            return script
+        call = len(self.calls)
+        if call > len(script):
+            count = len(script)
+            raise RuntimeError(
+                f"FakeBackend has no token counts left: it was given {count} and this is call "
+                f"{call}. Give as many as there are answers, or a single pair for every answer."
+            )
+        return script[call - 1]
+
     def __repr__(self) -> str:
         return f"FakeBackend(model={self.model!r}, calls={len(self.calls)})"
+
+
+def _is_token_pair(value: object) -> bool:
+    return (
+        isinstance(value, tuple)
+        and len(value) == 2
+        and all(isinstance(n, int) and not isinstance(n, bool) and n >= 0 for n in value)
+    )
+
+
+def _check_token_script(
+    tokens: object,
+) -> TokenCounts | list[TokenCounts | None] | Callable[..., TokenCounts | None] | None:
+    if tokens is None or callable(tokens):
+        return tokens  # type: ignore[return-value]
+    if _is_token_pair(tokens):
+        return tokens  # type: ignore[return-value]
+    if isinstance(tokens, (str, bytes)) or not isinstance(tokens, Sequence):
+        raise TypeError(_TOKENS_SHAPE)
+    script = list(tokens)
+    if not all(item is None or _is_token_pair(item) for item in script):
+        raise TypeError(_TOKENS_SHAPE)
+    return script
 
 
 #: How much of an unexpected answer an error message quotes.
