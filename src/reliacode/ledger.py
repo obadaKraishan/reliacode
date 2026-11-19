@@ -8,11 +8,12 @@ never holds the text that was coded, the model's answer or an API key, so a ledg
 shared even when the texts cannot.
 """
 
+import csv
 import hashlib
 import json
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Literal
@@ -553,6 +554,10 @@ class Ledger:
         """Every line in the file, read again from disk."""
         return read_ledger(self.path)
 
+    def summary(self) -> "LedgerSummary":
+        """The totals of every call in the file, costed with the ledger's prices."""
+        return summarize(self.entries(), self.prices)
+
     def check(self) -> None:
         """Refuse the next call if it would pass a limit of the budget. Run it before each call.
 
@@ -696,3 +701,178 @@ def _ends_without_line_end(path: Path) -> bool:
             return False
         file.seek(-1, os.SEEK_END)
         return file.read(1) != b"\n"
+
+
+#: The name under which calls with no known model are summed.
+UNKNOWN_MODEL = "(unknown)"
+
+
+class Totals(_Record):
+    """What a group of calls used: all of them, or those to one model or for one variable.
+
+    Token counts and costs add up only the calls that have them, and say how many do not:
+    a missing count is never taken as zero. A per-text average is given only when every call
+    in the group could be counted (or, for the cost, priced); otherwise it is ``None``.
+
+    Attributes:
+        calls: the calls made.
+        answered, asked_again, missing, failed: the calls by outcome (see :class:`LedgerEntry`).
+        attempts: the tries sent to the servers by the calls that got an answer, retries
+            included. A failed call's tries are not known.
+        texts: the different texts the calls were for (told apart by their hashes).
+        input_tokens, output_tokens: the token counts of the calls whose server reported
+            both, or ``None`` when no call could be counted.
+        calls_without_tokens: the calls whose token counts are not known, failed calls
+            included.
+        cost: the cost of the calls that have one, in the price table's currency, or ``None``.
+        calls_without_cost: the calls with no cost, because a count or a price is missing.
+        latency_seconds: the time spent waiting for answers, added up.
+        calls_per_text, input_tokens_per_text, output_tokens_per_text, cost_per_text: averages
+            over the texts.
+    """
+
+    calls: int
+    answered: int
+    asked_again: int
+    missing: int
+    failed: int
+    attempts: int
+    texts: int
+    input_tokens: int | None
+    output_tokens: int | None
+    calls_without_tokens: int
+    cost: float | None
+    calls_without_cost: int
+    latency_seconds: float | None
+    calls_per_text: float | None
+    input_tokens_per_text: float | None
+    output_tokens_per_text: float | None
+    cost_per_text: float | None
+
+
+class LedgerSummary(_Record):
+    """The totals of a ledger, as the source for the cost and token use reported in a paper.
+
+    Attributes:
+        total: all calls.
+        by_model: the calls to each model, under the name that was asked for.
+        by_variable: the calls for each variable.
+        first_at, last_at: the times of the first and the last call, in UTC.
+        codebook_hashes, prompt_hashes: the codebook and prompt hashes seen, in the order they
+            first appear.
+        served_as: for each model asked for, the names the server returned.
+        prices: the price table the costs come from, with its currency and date.
+    """
+
+    total: Totals
+    by_model: dict[str, Totals]
+    by_variable: dict[str, Totals]
+    first_at: datetime | None
+    last_at: datetime | None
+    codebook_hashes: tuple[str, ...]
+    prompt_hashes: tuple[str, ...]
+    served_as: dict[str, tuple[str, ...]]
+    prices: PriceTable | None
+
+    def rows(self) -> list[dict[str, object]]:
+        """One row per group: ``"all"``, then each model, then each variable.
+
+        Each row has the group, its name, every total and the currency.
+        ``pandas.DataFrame(summary.rows())`` turns it into a data frame.
+        """
+        currency = self.prices.currency if self.prices is not None else None
+        groups = [("all", "all calls", self.total)]
+        groups += [("model", name, totals) for name, totals in self.by_model.items()]
+        groups += [("variable", name, totals) for name, totals in self.by_variable.items()]
+        return [
+            {"group": group, "name": name, **totals.model_dump(), "currency": currency}
+            for group, name, totals in groups
+        ]
+
+    def to_csv(self, path: str | os.PathLike[str]) -> None:
+        """Write :meth:`rows` to a CSV file. A value that is not known is left empty."""
+        fields = ["group", "name", *Totals.model_fields, "currency"]
+        with Path(path).open("w", encoding="utf-8", newline="") as file:
+            writer = csv.DictWriter(file, fieldnames=fields)
+            writer.writeheader()
+            writer.writerows(self.rows())
+
+    def to_json(self, path: str | os.PathLike[str]) -> None:
+        """Write the whole summary to a JSON file."""
+        Path(path).write_text(self.model_dump_json(indent=2) + "\n", encoding="utf-8")
+
+
+def summarize(entries: Iterable[LedgerEntry], prices: PriceTable | None = None) -> LedgerSummary:
+    """Add up the calls in a ledger: in all, by model and by variable.
+
+    Args:
+        entries: the ledger's lines, such as ``read_ledger("ledger.jsonl")``.
+        prices: the price table to cost the calls with. Without one, there are tokens and no
+            costs. Costs are worked out from the lines and the table each time, so a summary
+            can be made again with corrected prices.
+    """
+    if prices is not None and not isinstance(prices, PriceTable):
+        raise TypeError("prices should be a PriceTable(currency=..., read_on=..., prices=...).")
+    lines = list(entries)
+    if not all(isinstance(entry, LedgerEntry) for entry in lines):
+        raise TypeError("summarize() takes ledger lines, such as read_ledger(path).")
+    by_model: dict[str, list[LedgerEntry]] = {}
+    by_variable: dict[str, list[LedgerEntry]] = {}
+    served_as: dict[str, dict[str, None]] = {}
+    for entry in lines:
+        model = entry.model or UNKNOWN_MODEL
+        by_model.setdefault(model, []).append(entry)
+        by_variable.setdefault(entry.variable, []).append(entry)
+        if entry.model_returned is not None:
+            served_as.setdefault(model, {})[entry.model_returned] = None
+    times = [entry.at for entry in lines]
+    return LedgerSummary(
+        total=_totals(lines, prices),
+        by_model={name: _totals(group, prices) for name, group in by_model.items()},
+        by_variable={name: _totals(group, prices) for name, group in by_variable.items()},
+        first_at=min(times, default=None),
+        last_at=max(times, default=None),
+        codebook_hashes=tuple(dict.fromkeys(entry.codebook_hash for entry in lines)),
+        prompt_hashes=tuple(dict.fromkeys(entry.prompt_hash for entry in lines)),
+        served_as={name: tuple(names) for name, names in served_as.items()},
+        prices=prices,
+    )
+
+
+def _totals(entries: list[LedgerEntry], prices: PriceTable | None) -> Totals:
+    counted = [
+        e for e in entries if e.prompt_tokens is not None and e.completion_tokens is not None
+    ]
+    costs = [prices.cost(entry) for entry in entries] if prices is not None else []
+    known_costs = [cost for cost in costs if cost is not None]
+    latencies = [e.latency_seconds for e in entries if e.latency_seconds is not None]
+    outcomes = [entry.outcome for entry in entries]
+    texts = len({entry.text_hash for entry in entries})
+    input_tokens = sum(e.prompt_tokens or 0 for e in counted) if counted else None
+    output_tokens = sum(e.completion_tokens or 0 for e in counted) if counted else None
+    cost = sum(known_costs) if known_costs else None
+    all_counted = len(counted) == len(entries)
+    all_costed = len(known_costs) == len(entries)
+    return Totals(
+        calls=len(entries),
+        answered=outcomes.count("answered"),
+        asked_again=outcomes.count("asked_again"),
+        missing=outcomes.count("missing"),
+        failed=outcomes.count("failed"),
+        attempts=sum(entry.attempts or 0 for entry in entries),
+        texts=texts,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        calls_without_tokens=len(entries) - len(counted),
+        cost=cost,
+        calls_without_cost=len(entries) - len(known_costs),
+        latency_seconds=sum(latencies) if latencies else None,
+        calls_per_text=_per(len(entries), texts),
+        input_tokens_per_text=_per(input_tokens, texts) if all_counted else None,
+        output_tokens_per_text=_per(output_tokens, texts) if all_counted else None,
+        cost_per_text=_per(cost, texts) if all_costed else None,
+    )
+
+
+def _per(value: float | None, texts: int) -> float | None:
+    return value / texts if value is not None and texts else None

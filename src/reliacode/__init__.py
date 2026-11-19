@@ -26,9 +26,11 @@ from reliacode.ledger import (
     Ledger,
     LedgerEntry,
     LedgerError,
+    LedgerSummary,
     ModelPrice,
     PriceTable,
     read_ledger,
+    summarize,
 )
 
 try:
@@ -51,6 +53,7 @@ __all__ = [
     "Ledger",
     "LedgerEntry",
     "LedgerError",
+    "LedgerSummary",
     "ModelPrice",
     "OpenAICompatibleBackend",
     "PriceTable",
@@ -63,4 +66,5 @@ __all__ = [
     "load_codebook",
     "parse_codebook",
     "read_ledger",
+    "summarize",
 ]

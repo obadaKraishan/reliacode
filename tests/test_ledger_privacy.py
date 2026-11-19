@@ -16,7 +16,15 @@ import pytest
 
 from helpers import CODEBOOK_HASH, PROMPT_HASH, FakeServer, completion
 from reliacode.backends import BackendError, OpenAICompatibleBackend
-from reliacode.ledger import Ledger, LedgerEntry, LedgerError, hash_text, read_ledger
+from reliacode.ledger import (
+    Ledger,
+    LedgerEntry,
+    LedgerError,
+    ModelPrice,
+    PriceTable,
+    hash_text,
+    read_ledger,
+)
 
 KEY_ENV = "RELIACODE_TEST_API_KEY"
 HOSTED = "https://api.example.org/v1"
@@ -99,6 +107,27 @@ def test_no_secret_reaches_a_repr_or_a_record(tmp_path: Path, secret: Secrets) -
     shown += [json.dumps(entry.model_dump(mode="json")) for entry in entries]
     shown += [repr(vars(ledger))]
     secret.assert_absent("\n".join(shown), "a repr or a record")
+
+
+def test_no_secret_reaches_the_summary_or_its_exports(tmp_path: Path, secret: Secrets) -> None:
+    prices = PriceTable(
+        currency="USD",
+        read_on="2026-11-19",
+        prices={"hosted-model": ModelPrice(input_per_million=1, output_per_million=2)},
+    )
+    ledger = Ledger(tmp_path / "ledger.jsonl", prices=prices)
+    record_a_call_and_a_failure(ledger, secret)
+    summary = ledger.summary()
+    summary.to_csv(tmp_path / "summary.csv")
+    summary.to_json(tmp_path / "summary.json")
+    shown = [
+        repr(summary),
+        repr(summary.rows()),
+        (tmp_path / "summary.csv").read_text(encoding="utf-8"),
+        (tmp_path / "summary.json").read_text(encoding="utf-8"),
+    ]
+    secret.assert_absent("\n".join(shown), "the summary")
+    assert summary.total.calls == 2
 
 
 def test_no_secret_reaches_a_log_line(
