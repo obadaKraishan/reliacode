@@ -474,6 +474,9 @@ def variable_reliability(
 ) -> VariableReliability:
     """How far the coders agree on ``variable``: Krippendorff's alpha.
 
+    The level of measurement comes from the codebook: nominal, or ordinal with the categories
+    ranked by their levels, using Krippendorff's ordinal metric.
+
     Alpha uses every unit with values from at least two coders, so coders may leave units out
     and any number of coders can be compared. A unit with only one value cannot be paired and
     adds nothing. Missing values are left out, never counted as a category.
@@ -502,8 +505,6 @@ def variable_reliability(
             f"they are {describe(codes)}."
         )
     data = _prepare(codebook.variable(variable), codes, coders)
-    if data.variable.type == "ordinal":
-        raise ValueError("Ordinal alpha is not available yet.")
     patterns = _Patterns(data)
     return VariableReliability(
         variable=data.variable.name,
@@ -601,6 +602,9 @@ class _Patterns:
         #: Each pattern's pairs of values, and the pairs that agree.
         self.pairs = [sum(counts) * (sum(counts) - 1) // 2 for counts in self.counts]
         self.agree = [sum(c * (c - 1) // 2 for c in counts) for counts in self.counts]
+        #: Ordinal data only: each pattern's coincidences of two different codes c < k.
+        self.ordinal = data.variable.type == "ordinal"
+        self.mixed = [_mixed(counts) if self.ordinal else [] for counts in self.counts]
 
     def everyone(self) -> list[int]:
         """How often each pattern occurs among the units."""
@@ -613,6 +617,7 @@ class _Patterns:
         n = [0] * self.size
         same = 0.0
         pairs = agree = 0
+        mixed: dict[tuple[int, int], float] = {}
         for pattern, times in enumerate(often):
             if not times:
                 continue
@@ -621,12 +626,25 @@ class _Patterns:
             same += times * self.same[pattern]
             pairs += times * self.pairs[pattern]
             agree += times * self.agree[pattern]
-        return _Totals(n, same, pairs, agree)
+            for cell, coincidences in self.mixed[pattern]:
+                mixed[cell] = mixed.get(cell, 0.0) + times * coincidences
+        return _Totals(n, same, pairs, agree, mixed, self.ordinal)
 
 
 def _same(counts: tuple[int, ...]) -> float:
     values = sum(counts)
     return sum(c * (c - 1) for c in counts) / (values - 1)
+
+
+def _mixed(counts: tuple[int, ...]) -> list[tuple[tuple[int, int], float]]:
+    """The coincidences o_ck of two different codes c < k in one unit: n_c n_k / (m - 1)."""
+    values = sum(counts)
+    used = [(code, count) for code, count in enumerate(counts) if count]
+    return [
+        ((c, k), count_c * count_k / (values - 1))
+        for position, (c, count_c) in enumerate(used)
+        for k, count_k in used[position + 1 :]
+    ]
 
 
 class _Totals(NamedTuple):
@@ -637,16 +655,41 @@ class _Totals(NamedTuple):
     same: float
     pairs: int
     agree: int
+    #: Ordinal data only: the coincidences o_ck of codes c < k.
+    mixed: dict[tuple[int, int], float]
+    ordinal: bool
 
 
 def _alpha(totals: _Totals) -> float | None:
-    """Krippendorff's alpha for nominal data from the totals, or None when it is undefined:
-    with fewer than two pairable values, or with every value the same code."""
+    """Krippendorff's alpha from the totals, or None when it is undefined: with fewer than two
+    pairable values, or with every value the same code.
+
+    Nominal: ((n - 1) sum_c o_cc - sum_c n_c (n_c - 1)) / (n (n - 1) - sum_c n_c (n_c - 1)).
+    Ordinal: 1 - (n - 1) sum_{c<k} o_ck d_ck / sum_{c<k} n_c n_k d_ck, where the squared
+    difference d_ck = (n_c + ... + n_k - (n_c + n_k) / 2) ** 2 counts the values ranked from c to
+    k, so it is worked out from these totals' own n (Krippendorff, 2011).
+    """
     n = sum(totals.n)
     if n < 2 or sum(1 for count in totals.n if count) < 2:
         return None
-    chance = sum(count * (count - 1) for count in totals.n)
-    return ((n - 1) * totals.same - chance) / (n * (n - 1) - chance)
+    if not totals.ordinal:
+        chance = sum(count * (count - 1) for count in totals.n)
+        return ((n - 1) * totals.same - chance) / (n * (n - 1) - chance)
+    below = [0]
+    for count in totals.n:
+        below.append(below[-1] + count)
+
+    def difference(c: int, k: int) -> float:
+        return (below[k + 1] - below[c] - (totals.n[c] + totals.n[k]) / 2) ** 2
+
+    observed = sum(o * difference(c, k) for (c, k), o in totals.mixed.items())
+    used = [code for code, count in enumerate(totals.n) if count]
+    expected = sum(
+        totals.n[c] * totals.n[k] * difference(c, k)
+        for position, c in enumerate(used)
+        for k in used[position + 1 :]
+    )
+    return 1 - (n - 1) * observed / expected
 
 
 def _alpha_record(data: _Data, patterns: _Patterns) -> Agreement:

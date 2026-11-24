@@ -77,6 +77,48 @@ def test_section_c_nominal_four_observers_with_missing_data() -> None:
     assert sum(result.alpha.coder_shares["D"].values()) == pytest.approx(1)
 
 
+def test_section_c_as_ordinal_data() -> None:
+    result = alpha_of(SECTION_C, ["1", "2", "3", "4", "5"], ordinal=True)
+    assert round(result.alpha.value, 3) == 0.815
+    exact = alpha_by_definition(SECTION_C, ["1", "2", "3", "4", "5"], ordinal=True)
+    assert result.alpha.value == pytest.approx(float(exact), abs=1e-15)
+    assert result.type == "ordinal"
+
+
+def test_an_unused_rank_does_not_change_ordinal_alpha() -> None:
+    # The paper adds an unused rank to show that it does not matter.
+    five = alpha_of(SECTION_C, ["1", "2", "3", "4", "5"], ordinal=True).alpha.value
+    six = alpha_of(SECTION_C, ["1", "2", "3", "4", "unused", "5"], ordinal=True).alpha.value
+    assert six == pytest.approx(five, abs=1e-15)
+
+
+def test_ordinal_ranks_come_from_the_levels_not_the_order_of_the_categories() -> None:
+    in_order = one_variable(["1", "2", "3", "4", "5"], ordinal=True)
+    shuffled = parse_codebook(
+        in_order.replace('code: "5"', 'code: "x5"')
+        .replace('code: "2"', 'code: "5"')
+        .replace('code: "x5"', 'code: "2"')
+        .replace("level: 1", "level: 9")
+        .replace("level: 4", "level: 1")
+        .replace("level: 9", "level: 4")
+    )
+    assert shuffled.variable("v").codes == ("1", "5", "3", "4", "2")
+    rows = matrix_rows("v", SECTION_C)
+    result = variable_reliability(shuffled, read_codes(shuffled, rows), "v")
+    assert result.alpha.value == pytest.approx(
+        alpha_of(SECTION_C, ["1", "2", "3", "4", "5"], ordinal=True).alpha.value, abs=1e-15
+    )
+    # Counts and shares list the codes in codebook order.
+    assert list(result.alpha.coder_counts["A"]) == ["1", "5", "3", "4", "2"]
+
+
+def test_nominal_and_ordinal_alpha_differ_when_the_order_matters() -> None:
+    near = {"A": ["0", "1", "2", "3"] * 3, "B": ["1", "2", "3", "2"] * 3}
+    nominal = alpha_of(near, ["0", "1", "2", "3"]).alpha.value
+    ordinal = alpha_of(near, ["0", "1", "2", "3"], ordinal=True).alpha.value
+    assert ordinal > nominal
+
+
 def test_coders_can_be_chosen() -> None:
     codebook = parse_codebook(one_variable(["1", "2", "3", "4", "5"]))
     codes = read_codes(codebook, matrix_rows("v", SECTION_C))
@@ -151,14 +193,15 @@ def invented_table(rng: random.Random, order: list[str]) -> dict[str, list[objec
     }
 
 
-@pytest.mark.parametrize("seed", range(6))
-def test_the_fast_alpha_equals_the_definition_on_invented_tables(seed: int) -> None:
+@pytest.mark.parametrize("ordinal", [False, True], ids=["nominal", "ordinal"])
+@pytest.mark.parametrize("seed", range(5))
+def test_the_fast_alpha_equals_the_definition_on_invented_tables(seed: int, ordinal: bool) -> None:
     rng = random.Random(seed)
     for _ in range(50):
         order = [f"c{n}" for n in range(rng.randint(2, 7))]
         matrix = invented_table(rng, order)
-        exact = alpha_by_definition(matrix, order)
-        fast = alpha_of(matrix, order).alpha.value
+        exact = alpha_by_definition(matrix, order, ordinal=ordinal)
+        fast = alpha_of(matrix, order, ordinal=ordinal).alpha.value
         if exact is None:
             assert fast is None
         else:
@@ -168,6 +211,8 @@ def test_the_fast_alpha_equals_the_definition_on_invented_tables(seed: int) -> N
 def test_the_oracle_gives_the_paper_values() -> None:
     assert round(float(alpha_by_definition(SECTION_C, ["1", "2", "3", "4", "5"])), 3) == 0.743
     assert round(float(alpha_by_definition(SECTION_B, ["a", "b", "c", "d", "e"])), 3) == 0.692
+    ordinal = alpha_by_definition(SECTION_C, ["1", "2", "3", "4", "5"], ordinal=True)
+    assert round(float(ordinal), 3) == 0.815
 
 
 # Invariance ------------------------------------------------------------------------------------
