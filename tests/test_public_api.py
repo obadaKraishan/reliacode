@@ -269,3 +269,102 @@ def test_a_run_with_a_ledger_codes_exactly_as_a_run_without_one(tmp_path: Path) 
         assert without.missing_reason == with_ledger.missing_reason
         assert without.prompt_hash == with_ledger.prompt_hash
         assert [r.text for r in without.responses] == [r.text for r in with_ledger.responses]
+
+
+# The reliability API -----------------------------------------------------------------------------
+
+RELIABILITY_NAMES = [
+    "CodebookReliability",
+    "Codes",
+    "CodesError",
+    "VariableReliability",
+    "codebook_reliability",
+    "read_codes",
+    "variable_reliability",
+]
+
+
+@pytest.mark.parametrize("name", RELIABILITY_NAMES)
+def test_every_reliability_name_is_exported(name: str) -> None:
+    assert name in reliacode.__all__
+    assert hasattr(reliacode, name)
+
+
+def test_the_reliability_functions_keep_their_parameters() -> None:
+    assert parameters(reliacode.read_codes) == [
+        ("codebook", "POSITIONAL_OR_KEYWORD", EMPTY),
+        ("source", "POSITIONAL_OR_KEYWORD", None),
+        ("run", "KEYWORD_ONLY", None),
+    ]
+    settings = [
+        ("resamples", "KEYWORD_ONLY", 2000),
+        ("seed", "KEYWORD_ONLY", None),
+        ("confidence", "KEYWORD_ONLY", 0.95),
+    ]
+    assert parameters(reliacode.variable_reliability) == [
+        ("codebook", "POSITIONAL_OR_KEYWORD", EMPTY),
+        ("codes", "POSITIONAL_OR_KEYWORD", EMPTY),
+        ("variable", "POSITIONAL_OR_KEYWORD", EMPTY),
+        ("coders", "KEYWORD_ONLY", None),
+        *settings,
+    ]
+    assert parameters(reliacode.codebook_reliability) == [
+        ("codebook", "POSITIONAL_OR_KEYWORD", EMPTY),
+        ("codes", "POSITIONAL_OR_KEYWORD", EMPTY),
+        ("variables", "KEYWORD_ONLY", None),
+        ("coders", "KEYWORD_ONLY", None),
+        *settings,
+    ]
+
+
+def test_the_reliability_records_keep_their_fields() -> None:
+    from reliacode.reliability import Agreement, CodedValue, Interval
+
+    assert list(reliacode.Codes.model_fields) == ["values"]
+    assert list(CodedValue.model_fields) == ["unit", "coder", "variable", "value"]
+    assert list(Interval.model_fields) == ["low", "high", "confidence", "defined_resamples"]
+    assert list(Agreement.model_fields) == [
+        "coefficient",
+        "value",
+        "reason",
+        "interval",
+        "notes",
+        "units",
+        "pairable_values",
+        "percent_agreement",
+        "coder_counts",
+        "coder_shares",
+    ]
+    assert list(reliacode.VariableReliability.model_fields) == [
+        "variable",
+        "type",
+        "coders",
+        "alpha",
+        "kappa",
+        "notes",
+        "resamples",
+        "seed",
+        "confidence",
+        "method",
+        "codebook_hash",
+        "reliacode_version",
+    ]
+    assert list(reliacode.CodebookReliability.model_fields) == [
+        "codebook_name",
+        "codebook_version",
+        "codebook_hash",
+        "coders",
+        "variables",
+        "resamples",
+        "seed",
+        "confidence",
+        "method",
+        "reliacode_version",
+    ]
+    assert issubclass(reliacode.CodesError, ValueError)
+
+
+def test_the_reliability_records_are_frozen_and_refuse_unknown_fields() -> None:
+    for record in (reliacode.Codes, reliacode.VariableReliability, reliacode.CodebookReliability):
+        assert record.model_config["frozen"] is True
+        assert record.model_config["extra"] == "forbid"

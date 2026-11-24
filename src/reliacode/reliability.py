@@ -3,7 +3,13 @@
 The input is codes, never text: one value, or a missing value, for each unit, coder and
 variable. :func:`read_codes` reads human codes from a CSV file in long form and adds the codes of
 a :class:`~reliacode.CodingRun`, where the model is one coder, and checks every value against the
-codebook.
+codebook. Human and human, human and model, and model and model are compared the same way.
+
+:func:`variable_reliability` gives Krippendorff's alpha (nominal or ordinal, as the codebook
+says) for any number of coders, and Cohen's kappa for exactly two. :func:`codebook_reliability`
+does the same for every variable. Each figure comes with a percentile bootstrap interval over
+units, the percent agreement, the numbers of units and pairable values, and each coder's share
+of each code. A figure that is not defined is ``None`` with a reason, never 0 or 1.
 """
 
 import csv

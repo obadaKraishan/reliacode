@@ -32,6 +32,15 @@ from reliacode.ledger import (
     read_ledger,
     summarize,
 )
+from reliacode.reliability import (
+    CodebookReliability,
+    Codes,
+    CodesError,
+    VariableReliability,
+    codebook_reliability,
+    read_codes,
+    variable_reliability,
+)
 
 try:
     __version__ = version("reliacode")
@@ -46,6 +55,9 @@ __all__ = [
     "Category",
     "Codebook",
     "CodebookError",
+    "CodebookReliability",
+    "Codes",
+    "CodesError",
     "CodingResult",
     "CodingRun",
     "Example",
@@ -61,10 +73,14 @@ __all__ = [
     "RequestParameters",
     "Response",
     "Variable",
+    "VariableReliability",
     "__version__",
     "code",
+    "codebook_reliability",
     "load_codebook",
     "parse_codebook",
+    "read_codes",
     "read_ledger",
     "summarize",
+    "variable_reliability",
 ]
