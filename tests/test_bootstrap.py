@@ -141,6 +141,7 @@ def test_no_interval_when_fewer_than_half_of_the_resamples_give_a_value() -> Non
     assert result.alpha.notes == (
         "No interval: alpha is defined in only 2 of the 9 resamples, fewer than half. The "
         "others hold one code only.",
+        "Every pair of values agrees, so alpha is 1.",
     )
     assert result.kappa.notes[0].startswith("No interval: kappa is defined in only 2 of the 9")
 

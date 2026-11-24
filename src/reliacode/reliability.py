@@ -861,7 +861,12 @@ def _alpha_record(data: _Data, patterns: _Patterns, spread: _Spread) -> Agreemen
     reason = None
     if value is None:
         n = sum(totals.n)
-        if n < 2:
+        if not data.units:
+            reason = (
+                "No alpha: there are no values for this variable. None was given, or every "
+                "value is missing."
+            )
+        elif n < 2:
             reason = (
                 "No alpha: no unit has values from two or more coders, so there are no pairs of "
                 "values to compare."
@@ -874,12 +879,20 @@ def _alpha_record(data: _Data, patterns: _Patterns, spread: _Spread) -> Agreemen
             )
     pairable = [unit for unit in data.units if len(unit) >= 2]
     counts = _coder_counts(data, pairable)
+    notes = list(spread.notes)
+    if value is not None and totals.agree == totals.pairs:
+        notes.append(
+            "Every pair of values agrees, so alpha is 1."
+            + _collapsed_to_one(spread.interval, "alpha", len(patterns.of_unit))
+        )
+    elif _collapsed(spread.interval):
+        notes.append(_collapsed_note(spread.interval, "alpha"))
     return Agreement(
         coefficient="krippendorff_alpha",
         value=value,
         reason=reason,
         interval=spread.interval,
-        notes=spread.notes,
+        notes=tuple(notes),
         units=len(patterns.of_unit),
         pairable_values=sum(totals.n),
         percent_agreement=100 * totals.agree / totals.pairs if totals.pairs else None,
@@ -957,17 +970,51 @@ def _kappa_record(data: _Data, pairs: _Pairs, spread: _Spread) -> Agreement:
         )
     both = [unit for unit in data.units if len(unit) == 2]
     counts = _coder_counts(data, both)
+    notes = list(spread.notes)
+    if value is not None and agree == units:
+        notes.append(
+            "The two coders agree on every unit, so kappa is 1."
+            + _collapsed_to_one(spread.interval, "kappa", units)
+        )
+    elif _collapsed(spread.interval):
+        notes.append(_collapsed_note(spread.interval, "kappa"))
+    if data.variable.type == "ordinal":
+        notes.append(
+            "This kappa is unweighted: it treats the categories as unordered, so a near miss "
+            "counts as much as a far one. Alpha uses their order."
+        )
     return Agreement(
         coefficient="cohen_kappa",
         value=value,
         reason=reason,
         interval=spread.interval,
-        notes=spread.notes,
+        notes=tuple(notes),
         units=units,
         pairable_values=2 * units,
         percent_agreement=100 * agree / units if units else None,
         coder_counts=counts,
         coder_shares=_shares(counts),
+    )
+
+
+def _collapsed(interval: Interval | None) -> bool:
+    return interval is not None and interval.low == interval.high
+
+
+def _collapsed_to_one(interval: Interval | None, name: str, units: int) -> str:
+    if interval is None:
+        return ""
+    return (
+        f" Every resample gives 1 too, so the interval collapses to the point [1, 1] and "
+        f"understates the uncertainty: it shows only that no disagreement was seen among these "
+        f"{units:,} units, not that {name} would be 1 on others."
+    )
+
+
+def _collapsed_note(interval: Interval, name: str) -> str:
+    return (
+        f"Every resample gives the same {name}, {interval.low:.3g}, so the interval collapses to "
+        "a point and understates the uncertainty."
     )
 
 
