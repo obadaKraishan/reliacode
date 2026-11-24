@@ -226,7 +226,9 @@ def test_bad_arguments_are_explained() -> None:
         variable_reliability(codebook, codes.rows(), "v")  # type: ignore[arg-type]
     with pytest.raises(KeyError, match='no variable "w"'):
         variable_reliability(codebook, codes, "w")
-    with pytest.raises(ValueError, match=re.escape('no codes from the coder "C". The coders are: A, B.')):
+    with pytest.raises(
+        ValueError, match=re.escape('no codes from the coder "C". The coders are: A, B.')
+    ):
         variable_reliability(codebook, codes, "v", coders=["A", "C"])
     with pytest.raises(ValueError, match='"A" is named more than once'):
         variable_reliability(codebook, codes, "v", coders=["A", "A"])
