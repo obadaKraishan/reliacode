@@ -534,15 +534,7 @@ def variable_reliability(
     """
     from reliacode import __version__  # here, because the package imports this module
 
-    if not isinstance(codebook, Codebook):
-        raise TypeError(
-            'codebook should be a codebook loaded with reliacode.load_codebook("file.yaml").'
-        )
-    if not isinstance(codes, Codes):
-        raise TypeError(
-            "codes should be the codes to compare, from reliacode.read_codes(codebook, ...), but "
-            f"they are {describe(codes)}."
-        )
+    _check_inputs(codebook, codes)
     resamples, seed, confidence = _bootstrap_settings(resamples, seed, confidence)
     data = _prepare(codebook.variable(variable), codes, coders)
     patterns = _Patterns(data)
@@ -569,6 +561,135 @@ def variable_reliability(
         codebook_hash=codebook.content_hash(),
         reliacode_version=__version__,
     )
+
+
+class CodebookReliability(_Record):
+    """How far the coders agree on each variable of a codebook, all with the same seed."""
+
+    codebook_name: str
+    codebook_version: str | None = None
+    codebook_hash: str
+    coders: tuple[str, ...]
+    variables: tuple[VariableReliability, ...]
+    resamples: int
+    seed: int
+    confidence: float
+    method: str = METHOD
+    reliacode_version: str
+
+    def variable(self, name: str) -> VariableReliability:
+        """The result for the variable called ``name``."""
+        for result in self.variables:
+            if result.variable == name:
+                return result
+        known = ", ".join(result.variable for result in self.variables)
+        raise KeyError(f'There is no result for "{name}". The variables are: {known}.')
+
+    def table(self) -> list[dict[str, object]]:
+        """One row per variable: the units, the pairable values, the percent agreement, and
+        alpha and kappa with their intervals (``None`` where there is none).
+
+        ``pandas.DataFrame(result.table())`` turns it into a data frame.
+        """
+        rows = []
+        for result in self.variables:
+            row: dict[str, object] = {
+                "variable": result.variable,
+                "type": result.type,
+                "coders": len(result.coders),
+                "units": result.alpha.units,
+                "pairable_values": result.alpha.pairable_values,
+                "percent_agreement": result.alpha.percent_agreement,
+            }
+            for name, figure in (("alpha", result.alpha), ("kappa", result.kappa)):
+                interval = figure.interval if figure is not None else None
+                row[name] = figure.value if figure is not None else None
+                row[f"{name}_low"] = interval.low if interval is not None else None
+                row[f"{name}_high"] = interval.high if interval is not None else None
+            rows.append(row)
+        return rows
+
+
+def codebook_reliability(
+    codebook: Codebook,
+    codes: Codes,
+    *,
+    variables: Sequence[str] | str | None = None,
+    coders: Sequence[str] | None = None,
+    resamples: int = RESAMPLES,
+    seed: int | None = None,
+    confidence: float = CONFIDENCE,
+) -> CodebookReliability:
+    """How far the coders agree on every variable of the codebook (or the ones named).
+
+    Each variable's result is exactly what :func:`variable_reliability` gives for it with the
+    same seed, so a variable's interval does not depend on which other variables are asked for.
+
+    Args:
+        codebook: the codebook the units were coded with.
+        codes: the codes to compare, from :func:`read_codes`.
+        variables: the name of one variable, or a list of names. All variables by default, in
+            codebook order; a variable without codes gets a result that says so.
+        coders, resamples, seed, confidence: as in :func:`variable_reliability`. When no seed
+            is given, one is drawn and used for every variable.
+
+    Raises:
+        CodesError: a value is not one of its variable's codes.
+        KeyError: the codebook has no variable with a name given.
+        TypeError, ValueError: the other arguments are not as described.
+    """
+    from reliacode import __version__  # here, because the package imports this module
+
+    _check_inputs(codebook, codes)
+    resamples, seed, confidence = _bootstrap_settings(resamples, seed, confidence)
+    if variables is None:
+        names = [variable.name for variable in codebook.variables]
+    else:
+        names = [variables] if isinstance(variables, str) else list(variables)
+        if not names:
+            raise ValueError(
+                "variables is empty. Name at least one, or leave it out to compare them all."
+            )
+        for name in names:
+            codebook.variable(name)  # a KeyError that lists the codebook's variables
+        repeated = sorted({name for name in names if names.count(name) > 1})
+        if repeated:
+            raise ValueError(f'The variable "{repeated[0]}" is named more than once in variables.')
+    results = tuple(
+        variable_reliability(
+            codebook,
+            codes,
+            name,
+            coders=coders,
+            resamples=resamples,
+            seed=seed,
+            confidence=confidence,
+        )
+        for name in names
+    )
+    return CodebookReliability(
+        codebook_name=codebook.name,
+        codebook_version=codebook.version,
+        codebook_hash=codebook.content_hash(),
+        coders=tuple(sorted({coder for result in results for coder in result.coders})),
+        variables=results,
+        resamples=resamples,
+        seed=seed,
+        confidence=confidence,
+        reliacode_version=__version__,
+    )
+
+
+def _check_inputs(codebook: object, codes: object) -> None:
+    if not isinstance(codebook, Codebook):
+        raise TypeError(
+            'codebook should be a codebook loaded with reliacode.load_codebook("file.yaml").'
+        )
+    if not isinstance(codes, Codes):
+        raise TypeError(
+            "codes should be the codes to compare, from reliacode.read_codes(codebook, ...), but "
+            f"they are {describe(codes)}."
+        )
 
 
 def _bootstrap_settings(
