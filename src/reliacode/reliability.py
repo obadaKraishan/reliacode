@@ -455,12 +455,17 @@ class Agreement(_Record):
 
 
 class VariableReliability(_Record):
-    """How far the coders agree on one variable."""
+    """How far the coders agree on one variable.
+
+    ``kappa`` is ``None`` unless exactly two coders are compared, and ``notes`` then says so.
+    """
 
     variable: str
     type: Literal["nominal", "ordinal"]
     coders: tuple[str, ...]
     alpha: Agreement
+    kappa: Agreement | None
+    notes: tuple[str, ...] = ()
     codebook_hash: str
     reliacode_version: str
 
@@ -472,14 +477,16 @@ def variable_reliability(
     *,
     coders: Sequence[str] | None = None,
 ) -> VariableReliability:
-    """How far the coders agree on ``variable``: Krippendorff's alpha.
+    """How far the coders agree on ``variable``: Krippendorff's alpha, and Cohen's kappa when
+    exactly two coders are compared.
 
     The level of measurement comes from the codebook: nominal, or ordinal with the categories
     ranked by their levels, using Krippendorff's ordinal metric.
 
     Alpha uses every unit with values from at least two coders, so coders may leave units out
     and any number of coders can be compared. A unit with only one value cannot be paired and
-    adds nothing. Missing values are left out, never counted as a category.
+    adds nothing. Missing values are left out, never counted as a category. Kappa uses the
+    units both coders coded, and is unweighted: it treats the categories as unordered.
 
     Args:
         codebook: the codebook the units were coded with.
@@ -506,11 +513,17 @@ def variable_reliability(
         )
     data = _prepare(codebook.variable(variable), codes, coders)
     patterns = _Patterns(data)
+    pairs = _Pairs(data) if len(data.coders) == 2 else None
+    notes = []
+    if pairs is None:
+        notes.append(_no_kappa(data.coders))
     return VariableReliability(
         variable=data.variable.name,
         type=data.variable.type,
         coders=data.coders,
         alpha=_alpha_record(data, patterns),
+        kappa=_kappa_record(data, pairs) if pairs is not None else None,
+        notes=tuple(notes),
         codebook_hash=codebook.content_hash(),
         reliacode_version=__version__,
     )
@@ -720,6 +733,95 @@ def _alpha_record(data: _Data, patterns: _Patterns) -> Agreement:
         percent_agreement=100 * totals.agree / totals.pairs if totals.pairs else None,
         coder_counts=counts,
         coder_shares=_shares(counts),
+    )
+
+
+class _Pairs:
+    """Two coders' codes on the units both coded, grouped by the pair of codes they gave.
+
+    The units are those of :class:`_Patterns` in the same order (with two coders, a pairable
+    unit is a unit both coded), so one resample of units serves alpha and kappa alike.
+    """
+
+    def __init__(self, data: _Data) -> None:
+        first, second = data.coders
+        index: dict[tuple[int, int], int] = {}
+        #: Each pattern: the first coder's code and the second coder's code.
+        self.cells: list[tuple[int, int]] = []
+        #: For each unit both coded, in order, its pattern.
+        self.of_unit: list[int] = []
+        for unit in data.units:
+            if len(unit) < 2:
+                continue
+            cell = (unit[first], unit[second])
+            if cell not in index:
+                index[cell] = len(self.cells)
+                self.cells.append(cell)
+            self.of_unit.append(index[cell])
+        self.size = len(data.order)
+
+    def everyone(self) -> list[int]:
+        """How often each pair of codes occurs among the units."""
+        often = [0] * len(self.cells)
+        for pattern in self.of_unit:
+            often[pattern] += 1
+        return often
+
+
+def _kappa(pairs: _Pairs, often: Sequence[int]) -> float | None:
+    """Cohen's kappa, (p_o - p_e) / (1 - p_e), from how often each pair of codes occurs, or
+    None when no unit was coded by both or when the agreement expected by chance is 1.
+
+    In whole numbers, with N units, A of them agreeing, and r_c and s_c the two coders' counts
+    of code c: kappa = (N A - sum_c r_c s_c) / (N ** 2 - sum_c r_c s_c).
+    """
+    first = [0] * pairs.size
+    second = [0] * pairs.size
+    agree = units = 0
+    for (a, b), times in zip(pairs.cells, often, strict=True):
+        first[a] += times
+        second[b] += times
+        units += times
+        agree += times if a == b else 0
+    chance = sum(r * s for r, s in zip(first, second, strict=True))
+    if units == 0 or units * units == chance:
+        return None
+    return (units * agree - chance) / (units * units - chance)
+
+
+def _kappa_record(data: _Data, pairs: _Pairs) -> Agreement:
+    often = pairs.everyone()
+    value = _kappa(pairs, often)
+    units = len(pairs.of_unit)
+    agree = sum(times for (a, b), times in zip(pairs.cells, often, strict=True) if a == b)
+    reason = None
+    if value is None and units == 0:
+        reason = "No kappa: no unit has a code from both coders."
+    elif value is None:
+        only = data.order[pairs.cells[0][0]]
+        reason = (
+            f'No kappa: both coders gave "{only}" to every unit they both coded, so the agreement '
+            "expected by chance is 1 and kappa is undefined, not 0 or 1."
+        )
+    both = [unit for unit in data.units if len(unit) == 2]
+    counts = _coder_counts(data, both)
+    return Agreement(
+        coefficient="cohen_kappa",
+        value=value,
+        reason=reason,
+        units=units,
+        pairable_values=2 * units,
+        percent_agreement=100 * agree / units if units else None,
+        coder_counts=counts,
+        coder_shares=_shares(counts),
+    )
+
+
+def _no_kappa(coders: tuple[str, ...]) -> str:
+    have = f"{len(coders)} ({', '.join(coders)})" if coders else "none"
+    return (
+        f"No Cohen's kappa: it compares exactly two coders, and these codes have {have}. "
+        'Choose two with coders=["...", "..."] to compare a pair.'
     )
 
 
