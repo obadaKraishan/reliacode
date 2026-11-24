@@ -12,9 +12,9 @@ will also keep a ledger of tokens and cost, and write a methods-section paragrap
 model, the prompt, the codebook's content hash and the reliability, so the analysis can be audited
 and repeated.
 
-> **Status: early development.** The codebook format and the `code()` runner exist so far. The
-> other modules are planned (see below and the issue tracker). Nothing is on PyPI yet, and the
-> API will change before v0.1.0.
+> **Status: early development.** The codebook format, the `code()` runner, the ledger and the
+> reliability module exist so far. The other modules are planned (see below and the issue
+> tracker). Nothing is on PyPI yet, and the API will change before v0.1.0.
 
 ## Codebooks
 A codebook is a YAML file. Here is a shortened version of
@@ -88,13 +88,30 @@ ledger.summary().total  # calls, tokens in and out, cost, and the calls that cou
 A count the server did not report stays missing and is never taken as zero. See
 [docs/ledger.md](docs/ledger.md).
 
+## Reliability
+reliacode measures how far coders agree, whether they are human coders, a model and human
+coders, or two models. It gives Krippendorff's alpha (nominal or ordinal, as the codebook says)
+for any number of coders and Cohen's kappa for two. Each figure has a bootstrap confidence
+interval with a recorded seed, and sits beside the percent agreement, the number of units and
+each coder's share of each code. Human codes come from a CSV file with the columns `unit`,
+`coder`, `variable` and `value`, and the model's codes come from its run:
+
+```python
+codes = reliacode.read_codes(codebook, "human_codes.csv", run=run)  # the model is "model"
+result = reliacode.codebook_reliability(codebook, codes, seed=20261124)
+result.table()  # one row per variable: alpha and kappa with their intervals, units, agreement
+```
+
+A figure that is not defined, such as alpha when every value is the same code, is `None` with a
+reason, never 0 or 1. See [docs/reliability.md](docs/reliability.md).
+
 ## Planned modules (v0.1)
 | Module | What it does | Status |
 |---|---|---|
 | Codebook | YAML codebooks validated with pydantic, with plain-language error messages and a stable content hash | done |
 | Backend adapter | One `code()` runner for any OpenAI-compatible endpoint | done ([#1](https://github.com/obadaKraishan/reliacode/issues/1)) |
 | Cost ledger | Tokens, cost and timing for every call | done ([#2](https://github.com/obadaKraishan/reliacode/issues/2)) |
-| Reliability | Krippendorff's alpha and Cohen's kappa with bootstrap CIs | planned ([#3](https://github.com/obadaKraishan/reliacode/issues/3)) |
+| Reliability | Krippendorff's alpha and Cohen's kappa with bootstrap CIs | done ([#3](https://github.com/obadaKraishan/reliacode/issues/3)) |
 | PPI | Prediction-powered inference for prevalence estimates | planned ([#4](https://github.com/obadaKraishan/reliacode/issues/4)) |
 | Methods exporter | A Markdown and LaTeX methods paragraph | planned ([#5](https://github.com/obadaKraishan/reliacode/issues/5)) |
 
