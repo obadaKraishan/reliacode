@@ -1,0 +1,431 @@
+"""Reliability: how far coders agree, with confidence intervals a methods section can report.
+
+The input is codes, never text: one value, or a missing value, for each unit, coder and
+variable. :func:`read_codes` reads human codes from a CSV file in long form and adds the codes of
+a :class:`~reliacode.CodingRun`, where the model is one coder, and checks every value against the
+codebook.
+"""
+
+import csv
+import difflib
+import io
+import math
+import os
+from collections.abc import Iterable, Mapping, Sequence
+from pathlib import Path
+from typing import Any, NamedTuple
+
+from pydantic import BaseModel, ConfigDict, model_validator
+
+from reliacode.codebook import Codebook
+from reliacode.coding import CodingRun
+from reliacode.errors import Problem, describe
+
+#: The columns of a codes file, in long form: one line per unit, coder and variable.
+COLUMNS = ("unit", "coder", "variable", "value")
+#: The coder name a single run gets.
+MODEL_CODER = "model"
+#: Values that look like a way of writing "missing". In a codes file, missing is an empty cell.
+_MISSING_WORDS = {"na", "n/a", "nan", "null", "none", "missing", "-", ".", "?"}
+#: How many problems an error lists before it only counts the rest.
+_SHOWN = 20
+
+
+class _Record(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class CodedValue(_Record):
+    """One coder's value for one unit and variable. ``value`` is ``None`` when it is missing."""
+
+    unit: str
+    coder: str
+    variable: str
+    value: str | None = None
+
+
+class Codes(_Record):
+    """The codes to compare: one value, or a missing value, for each unit, coder and variable.
+
+    Build it with :func:`read_codes`, which checks every value against the codebook. Unit ids
+    are text, so the text with id 7 in a run and the unit "7" in a CSV file are the same unit.
+    """
+
+    values: tuple[CodedValue, ...]
+
+    @model_validator(mode="after")
+    def _one_value_each(self) -> "Codes":
+        seen: set[tuple[str, str, str]] = set()
+        for item in self.values:
+            key = (item.unit, item.coder, item.variable)
+            if key in seen:
+                raise ValueError(
+                    f'Unit "{item.unit}", coder "{item.coder}", variable "{item.variable}" has '
+                    "more than one value. Each coder gives one value per unit and variable."
+                )
+            seen.add(key)
+        return self
+
+    @property
+    def coders(self) -> tuple[str, ...]:
+        """The coders' names, sorted."""
+        return tuple(sorted({item.coder for item in self.values}))
+
+    @property
+    def units(self) -> tuple[str, ...]:
+        """The unit ids, sorted."""
+        return tuple(sorted({item.unit for item in self.values}))
+
+    @property
+    def variables(self) -> tuple[str, ...]:
+        """The variables that have codes, sorted."""
+        return tuple(sorted({item.variable for item in self.values}))
+
+    def rows(self) -> list[dict[str, str | None]]:
+        """One row per value, with the columns unit, coder, variable and value.
+
+        ``pandas.DataFrame(codes.rows())`` turns it into a data frame.
+        """
+        return [item.model_dump() for item in self.values]
+
+
+class CodesError(ValueError):
+    """The codes could not be read, or do not fit the codebook. ``problems`` lists every one."""
+
+    def __init__(self, problems: Sequence[Problem], source: str | None = None) -> None:
+        self.problems = tuple(problems)
+        self.source = source
+        super().__init__(self._render())
+
+    def _render(self) -> str:
+        count = len(self.problems)
+        where = f" in {self.source}" if self.source else ""
+        lines = [f"The codes{where} have {count} {'problem' if count == 1 else 'problems'}:"]
+        lines += [f"  {n}. {problem}" for n, problem in enumerate(self.problems[:_SHOWN], 1)]
+        if count > _SHOWN:
+            lines.append(f"  ... and {count - _SHOWN} more.")
+        return "\n".join(lines)
+
+
+def read_codes(
+    codebook: Codebook,
+    source: str | os.PathLike[str] | Iterable[Mapping[str, Any]] | None = None,
+    *,
+    run: CodingRun | Mapping[str, CodingRun] | None = None,
+) -> Codes:
+    """Read the codes to compare, and check every value against the codebook.
+
+    Args:
+        codebook: the codebook the units were coded with.
+        source: human codes, as the path of a CSV file or as rows, such as
+            ``df.to_dict("records")``. Either way there is one row per unit, coder and
+            variable, with the columns ``unit``, ``coder``, ``variable`` and ``value``. Other
+            columns are ignored. An empty value is a missing value (in rows, also ``None`` or
+            NaN), never a category.
+        run: a :class:`~reliacode.CodingRun` from :func:`reliacode.code`, whose model becomes
+            the coder ``"model"``, or a mapping from coder names to runs, such as
+            ``{"qwen3": run_a, "gemma3": run_b}``, to compare models. A code that could not be
+            obtained is a missing value. A run's unit ids are the ids its texts had: positions
+            0, 1, 2 for a list of texts, or the keys of a mapping.
+
+    Raises:
+        CodesError: a value is not one of its variable's codes, a variable is not in the
+            codebook, a unit, coder and variable have more than one value, a run was coded with
+            another codebook, or the file cannot be read. Every problem is listed in file order,
+            with its line, unit, coder and variable.
+        FileNotFoundError: there is no file at ``source``.
+        TypeError: the arguments are not as described.
+    """
+    if not isinstance(codebook, Codebook):
+        raise TypeError(
+            'codebook should be a codebook loaded with reliacode.load_codebook("file.yaml").'
+        )
+    if source is None and run is None:
+        raise TypeError("Give the codes to compare: a CSV file or rows (source), a run, or both.")
+    problems = _Problems()
+    entries: list[_Entry] = []
+    name = None
+    if source is not None:
+        if isinstance(source, (str, os.PathLike)):
+            name = str(source)
+            entries += _csv_entries(Path(source), problems)
+        else:
+            entries += _row_entries(source, problems)
+    human_coders = {entry.value.coder for entry in entries}
+    for coder, coding_run in _named_runs(run).items():
+        if coder in human_coders:
+            problems.add(
+                _AFTER_SOURCE,
+                Problem(
+                    f'The coder name "{coder}" is used by the codes and by a run. Give the run '
+                    f'another name, for example run={{"{coder}_run": run}}.'
+                ),
+            )
+        entries += _run_entries(codebook, coder, coding_run, problems)
+    _check_entries(codebook, entries, problems)
+    if problems:
+        raise CodesError(problems.in_order(), name)
+    return Codes(values=tuple(entry.value for entry in entries))
+
+
+#: Where the problems and values of runs come in the order: after every line or row.
+_AFTER_SOURCE = 2**62
+
+
+class _Entry(NamedTuple):
+    """A value as read, with where it came from: its place in words, its line in a file, and
+    its position in the order problems are listed."""
+
+    value: CodedValue
+    where: str
+    line: int | None
+    order: int
+
+
+class _Problems:
+    """The problems found, each with its position, so they can be listed in file order."""
+
+    def __init__(self) -> None:
+        self._found: list[tuple[int, Problem]] = []
+
+    def add(self, order: int, problem: Problem) -> None:
+        self._found.append((order, problem))
+
+    def __bool__(self) -> bool:
+        return bool(self._found)
+
+    def in_order(self) -> list[Problem]:
+        return [problem for _, problem in sorted(self._found, key=lambda found: found[0])]
+
+
+def _csv_entries(path: Path, problems: _Problems) -> list[_Entry]:
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        problems.add(
+            0,
+            Problem(
+                "The file is not saved as UTF-8 text. Open it in a spreadsheet or text editor "
+                'and save it again as "CSV UTF-8".'
+            ),
+        )
+        return []
+    reader = csv.reader(io.StringIO(text, newline=""))
+    header = next(reader, None)
+    if header is None or not any(cell.strip() for cell in header):
+        problems.add(
+            0,
+            Problem(
+                "The file is empty. Its first line should name the columns unit, coder, "
+                "variable and value, followed by one line per unit, coder and variable."
+            ),
+        )
+        return []
+    names = [cell.strip() for cell in header]
+    absent = [column for column in COLUMNS if column not in names]
+    if absent:
+        problems.add(
+            1,
+            Problem(
+                f"The first line should name the columns unit, coder, variable and value, but "
+                f"{_and(absent)} {'is' if len(absent) == 1 else 'are'} missing. The first line "
+                f"is: {','.join(names)}.",
+                line=1,
+            ),
+        )
+        return []
+    column_of = {column: names.index(column) for column in COLUMNS}
+    entries = []
+    for cells in reader:
+        line = reader.line_num
+        if not any(cell.strip() for cell in cells):
+            continue
+        cells = cells + [""] * (len(names) - len(cells))
+        unit, coder, variable, value = (cells[column_of[column]].strip() for column in COLUMNS)
+        found = _value_of(unit, coder, variable, value or None)
+        if isinstance(found, str):
+            problems.add(line, Problem(found, line=line))
+        else:
+            entries.append(_Entry(found, f"line {line}", line, line))
+    return entries
+
+
+def _row_entries(rows: Iterable[Mapping[str, Any]], problems: _Problems) -> list[_Entry]:
+    if isinstance(rows, Mapping) or not isinstance(rows, Iterable):
+        raise TypeError(
+            "source should be the path of a CSV file, or a list of rows with the fields unit, "
+            f"coder, variable and value, but it is {describe(rows)}."
+        )
+    entries = []
+    for number, row in enumerate(rows, 1):
+        where = f"row {number}"
+        if not isinstance(row, Mapping):
+            message = (
+                f"This row is {describe(row)}, but each row should have the fields unit, coder, "
+                "variable and value."
+            )
+            problems.add(number, Problem(message, where))
+            continue
+        absent = [column for column in COLUMNS if column not in row]
+        if absent:
+            problems.add(number, Problem(f"This row has no {_and(absent)}.", where))
+            continue
+        fields = [_text(row[column], column) for column in COLUMNS[:3]]
+        fields.append(_value(row["value"]))
+        wrong = [field.problem for field in fields if isinstance(field, _Wrong)]
+        if wrong:
+            problems.add(number, Problem(wrong[0], where))
+            continue
+        unit, coder, variable, value = fields
+        found = _value_of(unit, coder, variable, value)  # type: ignore[arg-type]
+        if isinstance(found, str):
+            problems.add(number, Problem(found, where))
+        else:
+            entries.append(_Entry(found, where, None, number))
+    return entries
+
+
+class _Wrong(NamedTuple):
+    """A field of a row that cannot be used, and why."""
+
+    problem: str
+
+
+def _text(value: object, column: str) -> str | _Wrong:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    if isinstance(value, str):
+        return value.strip()
+    return _Wrong(f"The {column} should be text or a whole number, but it is {describe(value)}.")
+
+
+def _value(value: object) -> str | _Wrong | None:
+    """The value as text, or None when it is missing."""
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return None
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    if isinstance(value, str):
+        return value.strip() or None
+    return _Wrong(
+        "The value should be one of the variable's codes, or empty when it is missing, but it "
+        f"is {describe(value)}."
+    )
+
+
+def _value_of(unit: str, coder: str, variable: str, value: str | None) -> CodedValue | str:
+    """The coded value, or what is wrong with it."""
+    texts = (unit, coder, variable)
+    empty = [column for column, text in zip(COLUMNS[:3], texts, strict=True) if not text]
+    if empty:
+        return (
+            f"The {_and(empty)} {'is' if len(empty) == 1 else 'are'} empty. Every code needs the "
+            "unit that was coded, the coder who coded it and the variable."
+        )
+    return CodedValue(unit=unit, coder=coder, variable=variable, value=value)
+
+
+def _named_runs(run: object) -> dict[str, CodingRun]:
+    if run is None:
+        return {}
+    if isinstance(run, CodingRun):
+        return {MODEL_CODER: run}
+    if isinstance(run, Mapping):
+        runs = {}
+        for coder, coding_run in run.items():
+            if not isinstance(coder, str) or not coder.strip():
+                raise TypeError(f"The names of runs should be text, but one is {describe(coder)}.")
+            if not isinstance(coding_run, CodingRun):
+                raise TypeError(
+                    f'The run "{coder}" should be what reliacode.code() returned, but it is '
+                    f"{describe(coding_run)}."
+                )
+            runs[coder.strip()] = coding_run
+        return runs
+    raise TypeError(
+        "run should be what reliacode.code() returned, or a mapping from coder names to runs, "
+        f"but it is {describe(run)}."
+    )
+
+
+def _run_entries(
+    codebook: Codebook, coder: str, run: CodingRun, problems: _Problems
+) -> list[_Entry]:
+    expected = codebook.content_hash()
+    if run.codebook_hash != expected:
+        message = (
+            f'The run "{coder}" was coded with another codebook ({run.codebook_hash}) than the '
+            f"one given ({expected}). Load the codebook the run used, or code the texts again "
+            "with this one."
+        )
+        problems.add(_AFTER_SOURCE, Problem(message))
+        return []
+    return [
+        _Entry(
+            CodedValue(
+                unit=str(result.unit), coder=coder, variable=result.variable, value=result.code
+            ),
+            f'the run "{coder}"',
+            None,
+            _AFTER_SOURCE,
+        )
+        for result in run.results
+    ]
+
+
+def _check_entries(codebook: Codebook, entries: list[_Entry], problems: _Problems) -> None:
+    codes = {variable.name: variable.codes for variable in codebook.variables}
+    first: dict[tuple[str, str, str], str] = {}
+    for entry in entries:
+        item = entry.value
+        place = _place(item, entry.where if entry.line is None else "")
+        if item.variable not in codes:
+            hint = _suggestion(item.variable, list(codes))
+            message = (
+                f'The codebook has no variable "{item.variable}". Its variables are: '
+                f"{', '.join(codes)}.{hint}"
+            )
+            problems.add(entry.order, Problem(message, place, entry.line))
+            continue
+        if item.value is not None and item.value not in codes[item.variable]:
+            message = _unknown_code(item.value, item.variable, codes[item.variable])
+            problems.add(entry.order, Problem(message, place, entry.line))
+        key = (item.unit, item.coder, item.variable)
+        if key in first:
+            message = (
+                f"This unit, coder and variable already have a value ({first[key]}). Each coder "
+                "gives one value per unit and variable: keep one and remove the other."
+            )
+            problems.add(entry.order, Problem(message, place, entry.line))
+        else:
+            first[key] = entry.where
+
+
+def _place(item: CodedValue, where: str) -> str:
+    about = f'unit "{item.unit}", coder "{item.coder}", variable "{item.variable}"'
+    return f"{where}, {about}" if where else about
+
+
+def _unknown_code(value: str, variable: str, codes: Sequence[str]) -> str:
+    message = f'"{value}" is not one of the codes of {variable}: {", ".join(codes)}.'
+    folded = [code for code in codes if code.casefold() == value.casefold()]
+    if folded:
+        return (
+            f'{message} Did you mean "{folded[0]}"? Codes must match exactly, including upper '
+            "and lower case."
+        )
+    if value.casefold() in _MISSING_WORDS:
+        return f"{message} For a missing value, leave the value empty."
+    return message + _suggestion(value, list(codes))
+
+
+def _suggestion(word: str, options: list[str]) -> str:
+    close = difflib.get_close_matches(word, options, n=1)
+    return f' Did you mean "{close[0]}"?' if close else ""
+
+
+def _and(words: Sequence[str]) -> str:
+    quoted = [f'"{word}"' for word in words]
+    if len(quoted) == 1:
+        return quoted[0]
+    return ", ".join(quoted[:-1]) + " and " + quoted[-1]
