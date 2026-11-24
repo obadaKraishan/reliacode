@@ -92,6 +92,33 @@ All notable changes to this project are recorded here. The format follows
   - `FakeBackend(..., tokens=...)` reports scripted token counts, to test a budget.
   - `docs/ledger.md`: the file, what it never holds, prices, budgets, the summary and reporting
     cost in a paper.
+- Reliability, with no new dependency:
+  - `reliacode.read_codes(codebook, source, run=...)` reads the codes to compare into a
+    `reliacode.Codes` record: human codes from a CSV file in long form (`unit`, `coder`,
+    `variable`, `value`) or from rows such as a data frame's records, and the codes of a
+    `CodingRun` as the coder `"model"` (or several runs by name). Every value is checked against
+    the codebook, and `reliacode.CodesError` lists every problem in file order with its line,
+    unit, coder and variable. An empty value is missing, never a category.
+  - `reliacode.variable_reliability(codebook, codes, variable)` gives Krippendorff's alpha
+    (nominal, or ordinal with the ranks from the codebook's levels) for any number of coders,
+    with missing values, and unweighted Cohen's kappa for exactly two coders. Beside each figure
+    are the percent agreement, the numbers of units and pairable values, and each coder's counts
+    and shares of each code.
+  - Each figure has a percentile bootstrap interval over units: `resamples` (2,000 by default),
+    `seed` and `confidence` (0.95) are arguments and are recorded in the result. Without a seed,
+    one is drawn and recorded. The same seed gives the same interval on every supported Python.
+  - A figure that is not defined is `None` with a reason in plain words, never 0 or 1. Notes say
+    when every pair agrees (the interval collapses to [1, 1]), when an interval collapses, and
+    how many resamples gave no value.
+  - `reliacode.codebook_reliability(codebook, codes)` does this for every variable with one seed
+    and returns a `reliacode.CodebookReliability` with `table()` for data frames;
+    `reliacode.VariableReliability` holds one variable's result.
+  - Tested against the worked examples of Krippendorff (2011), the `krippendorff` package and
+    scikit-learn on fixed tables (computed once by `tests/reference/`), published kappa examples
+    (SAS/STAT's agreement study; Bland, 2015), exact implementations from the definitions, and a
+    coverage simulation.
+  - `docs/reliability.md`: an example from start to finish, what each figure means, the interval
+    and its seed, the undefined cases, and reporting reliability in a methods section.
 
 ### Changed
 - The example codebooks were revised after the author's review, so **both content hashes

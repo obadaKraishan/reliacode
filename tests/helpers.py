@@ -155,3 +155,58 @@ class FakeClock:
     def sleep(self, seconds: float) -> None:
         self.sleeps.append(seconds)
         self.now += seconds
+
+
+#: A codebook for reliability tests: a nominal and an ordinal variable.
+AGREEMENT = yaml_text(
+    """
+    name: agreement-demo
+    variables:
+      - name: tone
+        definition: The overall tone of the text toward its main subject.
+        categories:
+          - code: positive
+            definition: The text mostly praises or supports its subject.
+          - code: neutral
+            definition: The text neither praises nor criticises its subject.
+          - code: negative
+            definition: The text mostly criticises or opposes its subject.
+      - name: severity
+        definition: How strong the incivility in the text is.
+        type: ordinal
+        categories:
+          - code: none
+            definition: No incivility.
+            level: 0
+          - code: mild
+            definition: Incivility a reader could miss.
+            level: 1
+          - code: strong
+            definition: Incivility no reader could miss.
+            level: 2
+    """
+)
+
+
+def matrix_rows(variable: str, matrix: dict[str, list[object]]) -> list[dict[str, object]]:
+    """Rows for ``read_codes`` from a reliability data matrix: for each coder, the values of
+    units 1, 2, 3, ... in order, with ``None`` for a missing value."""
+    return [
+        {"unit": str(number), "coder": coder, "variable": variable, "value": value}
+        for coder, values in matrix.items()
+        for number, value in enumerate(values, 1)
+    ]
+
+
+def one_variable(codes: list[str], *, ordinal: bool = False, name: str = "v") -> str:
+    """A codebook with one variable whose codes are ``codes``. An ordinal variable gets the
+    levels 0, 1, 2, ... in the order given."""
+    lines = ["name: one-variable", "variables:", f"  - name: {name}", "    definition: Invented."]
+    if ordinal:
+        lines.append("    type: ordinal")
+    lines.append("    categories:")
+    for level, value in enumerate(codes):
+        lines += [f'      - code: "{value}"', "        definition: Invented."]
+        if ordinal:
+            lines.append(f"        level: {level}")
+    return "\n".join(lines) + "\n"
