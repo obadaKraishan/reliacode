@@ -527,8 +527,9 @@ def variable_reliability(
         variable: the name of the variable.
         coders: the coders to compare, such as ``["anna", "model"]``. By default, every coder
             with codes for this variable.
-        resamples: how many bootstrap resamples to draw (2,000 by default). Each draws as many
-            units as were coded, with replacement. With 0 there is no interval.
+        resamples: how many bootstrap resamples to draw (2,000 by default). Each draws, with
+            replacement, as many units as were compared (the units with at least two values).
+            With 0 there is no interval.
         seed: the seed of the random draws, so the same seed gives the same interval. When it
             is left out, a seed is drawn, and either way the result records it.
         confidence: the confidence level of the interval, as a share: 0.95 by default.
