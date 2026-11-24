@@ -196,3 +196,17 @@ def matrix_rows(variable: str, matrix: dict[str, list[object]]) -> list[dict[str
         for coder, values in matrix.items()
         for number, value in enumerate(values, 1)
     ]
+
+
+def one_variable(codes: list[str], *, ordinal: bool = False, name: str = "v") -> str:
+    """A codebook with one variable whose codes are ``codes``. An ordinal variable gets the
+    levels 0, 1, 2, ... in the order given."""
+    lines = ["name: one-variable", "variables:", f"  - name: {name}", "    definition: Invented."]
+    if ordinal:
+        lines.append("    type: ordinal")
+    lines.append("    categories:")
+    for level, value in enumerate(codes):
+        lines += [f'      - code: "{value}"', "        definition: Invented."]
+        if ordinal:
+            lines.append(f"        level: {level}")
+    return "\n".join(lines) + "\n"

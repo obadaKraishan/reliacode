@@ -11,13 +11,14 @@ import difflib
 import io
 import math
 import os
+from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, Literal, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from reliacode.codebook import Codebook
+from reliacode.codebook import Codebook, Variable
 from reliacode.coding import CodingRun
 from reliacode.errors import Problem, describe
 
@@ -429,3 +430,272 @@ def _and(words: Sequence[str]) -> str:
     if len(quoted) == 1:
         return quoted[0]
     return ", ".join(quoted[:-1]) + " and " + quoted[-1]
+
+
+# Agreement -------------------------------------------------------------------------------------
+
+
+class Agreement(_Record):
+    """One agreement coefficient for one variable, with what to read it against.
+
+    ``value`` is ``None`` when the coefficient is not defined for these codes, and ``reason``
+    then says why. ``units`` and ``pairable_values`` count what the figure is computed on.
+    ``percent_agreement`` (0 to 100) and each coder's counts and shares of each code, over the
+    same values, show how common each code is, so a high or low figure can be read against them.
+    """
+
+    coefficient: Literal["krippendorff_alpha", "cohen_kappa"]
+    value: float | None
+    reason: str | None = None
+    units: int
+    pairable_values: int
+    percent_agreement: float | None
+    coder_counts: dict[str, dict[str, int]]
+    coder_shares: dict[str, dict[str, float]]
+
+
+class VariableReliability(_Record):
+    """How far the coders agree on one variable."""
+
+    variable: str
+    type: Literal["nominal", "ordinal"]
+    coders: tuple[str, ...]
+    alpha: Agreement
+    codebook_hash: str
+    reliacode_version: str
+
+
+def variable_reliability(
+    codebook: Codebook,
+    codes: Codes,
+    variable: str,
+    *,
+    coders: Sequence[str] | None = None,
+) -> VariableReliability:
+    """How far the coders agree on ``variable``: Krippendorff's alpha.
+
+    Alpha uses every unit with values from at least two coders, so coders may leave units out
+    and any number of coders can be compared. A unit with only one value cannot be paired and
+    adds nothing. Missing values are left out, never counted as a category.
+
+    Args:
+        codebook: the codebook the units were coded with.
+        codes: the codes to compare, from :func:`read_codes`.
+        variable: the name of the variable.
+        coders: the coders to compare, such as ``["anna", "model"]``. By default, every coder
+            with codes for this variable.
+
+    Raises:
+        CodesError: a value is not one of the variable's codes.
+        KeyError: the codebook has no variable with that name.
+        TypeError, ValueError: the other arguments are not as described.
+    """
+    from reliacode import __version__  # here, because the package imports this module
+
+    if not isinstance(codebook, Codebook):
+        raise TypeError(
+            'codebook should be a codebook loaded with reliacode.load_codebook("file.yaml").'
+        )
+    if not isinstance(codes, Codes):
+        raise TypeError(
+            "codes should be the codes to compare, from reliacode.read_codes(codebook, ...), but "
+            f"they are {describe(codes)}."
+        )
+    data = _prepare(codebook.variable(variable), codes, coders)
+    if data.variable.type == "ordinal":
+        raise ValueError("Ordinal alpha is not available yet.")
+    patterns = _Patterns(data)
+    return VariableReliability(
+        variable=data.variable.name,
+        type=data.variable.type,
+        coders=data.coders,
+        alpha=_alpha_record(data, patterns),
+        codebook_hash=codebook.content_hash(),
+        reliacode_version=__version__,
+    )
+
+
+class _Data(NamedTuple):
+    """One variable's codes, ready to compute on."""
+
+    variable: Variable
+    coders: tuple[str, ...]
+    #: The codes in the order the metric uses: codebook order, or by level when ordinal.
+    order: tuple[str, ...]
+    #: For each unit, in the order of their ids, each coder's code (as a position in
+    #: ``order``). Missing values are left out.
+    units: list[dict[str, int]]
+
+
+def _prepare(variable: Variable, codes: Codes, coders: Sequence[str] | None) -> _Data:
+    chosen = _chosen_coders(variable.name, codes, coders)
+    if variable.type == "ordinal":
+        categories = sorted(variable.categories, key=lambda category: category.level or 0)
+    else:
+        categories = list(variable.categories)
+    order = tuple(category.code for category in categories)
+    position = {code: number for number, code in enumerate(order)}
+    by_unit: dict[str, dict[str, int]] = {}
+    problems = []
+    for item in codes.values:
+        if item.variable != variable.name or item.coder not in chosen or item.value is None:
+            continue
+        if item.value not in position:
+            message = _unknown_code(item.value, variable.name, variable.codes)
+            problems.append(Problem(message, _place(item, "")))
+            continue
+        by_unit.setdefault(item.unit, {})[item.coder] = position[item.value]
+    if problems:
+        raise CodesError(problems)
+    units = [by_unit[unit] for unit in sorted(by_unit)]
+    return _Data(variable, chosen, order, units)
+
+
+def _chosen_coders(variable: str, codes: Codes, coders: Sequence[str] | None) -> tuple[str, ...]:
+    if coders is None:
+        return tuple(sorted({item.coder for item in codes.values if item.variable == variable}))
+    names = [coders] if isinstance(coders, str) else list(coders)
+    known = codes.coders
+    for name in names:
+        if name not in known:
+            raise ValueError(
+                f'There are no codes from the coder "{name}". The coders are: {", ".join(known)}.'
+            )
+    repeated = sorted({name for name in names if names.count(name) > 1})
+    if repeated:
+        raise ValueError(f'The coder "{repeated[0]}" is named more than once in coders.')
+    if not names:
+        raise ValueError("coders is empty. Name at least two, or leave it out to compare them all.")
+    return tuple(sorted(names))
+
+
+class _Patterns:
+    """The pairable units of one variable (units with two or more values), grouped by how many
+    values of each code they hold.
+
+    Units with the same counts add the same amounts to every total, so each pattern's parts are
+    worked out once, and a total is a sum of parts times how often each pattern occurs.
+    """
+
+    def __init__(self, data: _Data) -> None:
+        size = len(data.order)
+        index: dict[tuple[int, ...], int] = {}
+        #: Each pattern: the count of each code.
+        self.counts: list[tuple[int, ...]] = []
+        #: For each pairable unit, in order, its pattern.
+        self.of_unit: list[int] = []
+        for unit in data.units:
+            if len(unit) < 2:
+                continue
+            tally = [0] * size
+            for code in unit.values():
+                tally[code] += 1
+            key = tuple(tally)
+            if key not in index:
+                index[key] = len(self.counts)
+                self.counts.append(key)
+            self.of_unit.append(index[key])
+        self.size = size
+        #: Each pattern's coincidences of a code with itself, summed over the codes.
+        self.same = [_same(counts) for counts in self.counts]
+        #: Each pattern's pairs of values, and the pairs that agree.
+        self.pairs = [sum(counts) * (sum(counts) - 1) // 2 for counts in self.counts]
+        self.agree = [sum(c * (c - 1) // 2 for c in counts) for counts in self.counts]
+
+    def everyone(self) -> list[int]:
+        """How often each pattern occurs among the units."""
+        often = [0] * len(self.counts)
+        for pattern in self.of_unit:
+            often[pattern] += 1
+        return often
+
+    def totals(self, often: Sequence[int]) -> "_Totals":
+        n = [0] * self.size
+        same = 0.0
+        pairs = agree = 0
+        for pattern, times in enumerate(often):
+            if not times:
+                continue
+            for code, count in enumerate(self.counts[pattern]):
+                n[code] += times * count
+            same += times * self.same[pattern]
+            pairs += times * self.pairs[pattern]
+            agree += times * self.agree[pattern]
+        return _Totals(n, same, pairs, agree)
+
+
+def _same(counts: tuple[int, ...]) -> float:
+    values = sum(counts)
+    return sum(c * (c - 1) for c in counts) / (values - 1)
+
+
+class _Totals(NamedTuple):
+    """Totals over a set of units: the number of pairable values of each code, the
+    coincidences of codes with themselves, the pairs of values and the pairs that agree."""
+
+    n: list[int]
+    same: float
+    pairs: int
+    agree: int
+
+
+def _alpha(totals: _Totals) -> float | None:
+    """Krippendorff's alpha for nominal data from the totals, or None when it is undefined:
+    with fewer than two pairable values, or with every value the same code."""
+    n = sum(totals.n)
+    if n < 2 or sum(1 for count in totals.n if count) < 2:
+        return None
+    chance = sum(count * (count - 1) for count in totals.n)
+    return ((n - 1) * totals.same - chance) / (n * (n - 1) - chance)
+
+
+def _alpha_record(data: _Data, patterns: _Patterns) -> Agreement:
+    totals = patterns.totals(patterns.everyone())
+    value = _alpha(totals)
+    reason = None
+    if value is None:
+        n = sum(totals.n)
+        if n < 2:
+            reason = (
+                "No alpha: no unit has values from two or more coders, so there are no pairs of "
+                "values to compare."
+            )
+        else:
+            only = data.order[next(code for code, count in enumerate(totals.n) if count)]
+            reason = (
+                f'No alpha: every pairable value is "{only}", so there is no variation. Alpha is '
+                "undefined here (the disagreement expected by chance is zero), not 0 or 1."
+            )
+    pairable = [unit for unit in data.units if len(unit) >= 2]
+    counts = _coder_counts(data, pairable)
+    return Agreement(
+        coefficient="krippendorff_alpha",
+        value=value,
+        reason=reason,
+        units=len(patterns.of_unit),
+        pairable_values=sum(totals.n),
+        percent_agreement=100 * totals.agree / totals.pairs if totals.pairs else None,
+        coder_counts=counts,
+        coder_shares=_shares(counts),
+    )
+
+
+def _coder_counts(data: _Data, units: list[dict[str, int]]) -> dict[str, dict[str, int]]:
+    """Each coder's count of each code, in codebook order, over the given units. A coder with
+    no value in them is left out."""
+    tallies: dict[str, Counter[str]] = {}
+    for unit in units:
+        for coder, code in unit.items():
+            tallies.setdefault(coder, Counter())[data.order[code]] += 1
+    return {
+        coder: {code: tallies[coder][code] for code in data.variable.codes}
+        for coder in data.coders
+        if coder in tallies
+    }
+
+
+def _shares(counts: dict[str, dict[str, int]]) -> dict[str, dict[str, float]]:
+    return {
+        coder: {code: count / sum(tally.values()) for code, count in tally.items()}
+        for coder, tally in counts.items()
+    }
