@@ -11,6 +11,7 @@ import difflib
 import io
 import math
 import os
+import random
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
@@ -434,6 +435,23 @@ def _and(words: Sequence[str]) -> str:
 
 # Agreement -------------------------------------------------------------------------------------
 
+#: How the intervals are made, recorded with every result.
+METHOD = "percentile bootstrap over units"
+#: The number of resamples by default.
+RESAMPLES = 2000
+#: The confidence level by default.
+CONFIDENCE = 0.95
+
+
+class Interval(_Record):
+    """A percentile bootstrap interval: the middle ``confidence`` share of the values the
+    resamples gave. ``defined_resamples`` counts the resamples that gave a value."""
+
+    low: float
+    high: float
+    confidence: float
+    defined_resamples: int
+
 
 class Agreement(_Record):
     """One agreement coefficient for one variable, with what to read it against.
@@ -447,6 +465,8 @@ class Agreement(_Record):
     coefficient: Literal["krippendorff_alpha", "cohen_kappa"]
     value: float | None
     reason: str | None = None
+    interval: Interval | None = None
+    notes: tuple[str, ...] = ()
     units: int
     pairable_values: int
     percent_agreement: float | None
@@ -466,6 +486,10 @@ class VariableReliability(_Record):
     alpha: Agreement
     kappa: Agreement | None
     notes: tuple[str, ...] = ()
+    resamples: int
+    seed: int
+    confidence: float
+    method: str = METHOD
     codebook_hash: str
     reliacode_version: str
 
@@ -476,9 +500,12 @@ def variable_reliability(
     variable: str,
     *,
     coders: Sequence[str] | None = None,
+    resamples: int = RESAMPLES,
+    seed: int | None = None,
+    confidence: float = CONFIDENCE,
 ) -> VariableReliability:
     """How far the coders agree on ``variable``: Krippendorff's alpha, and Cohen's kappa when
-    exactly two coders are compared.
+    exactly two coders are compared, each with a bootstrap confidence interval.
 
     The level of measurement comes from the codebook: nominal, or ordinal with the categories
     ranked by their levels, using Krippendorff's ordinal metric.
@@ -494,6 +521,11 @@ def variable_reliability(
         variable: the name of the variable.
         coders: the coders to compare, such as ``["anna", "model"]``. By default, every coder
             with codes for this variable.
+        resamples: how many bootstrap resamples to draw (2,000 by default). Each draws as many
+            units as were coded, with replacement. With 0 there is no interval.
+        seed: the seed of the random draws, so the same seed gives the same interval. When it
+            is left out, a seed is drawn, and either way the result records it.
+        confidence: the confidence level of the interval, as a share: 0.95 by default.
 
     Raises:
         CodesError: a value is not one of the variable's codes.
@@ -511,9 +543,12 @@ def variable_reliability(
             "codes should be the codes to compare, from reliacode.read_codes(codebook, ...), but "
             f"they are {describe(codes)}."
         )
+    resamples, seed, confidence = _bootstrap_settings(resamples, seed, confidence)
     data = _prepare(codebook.variable(variable), codes, coders)
     patterns = _Patterns(data)
     pairs = _Pairs(data) if len(data.coders) == 2 else None
+    value = _alpha(patterns.totals(patterns.everyone()))
+    alphas, kappas = _resampled(patterns, pairs, resamples if value is not None else 0, seed)
     notes = []
     if pairs is None:
         notes.append(_no_kappa(data.coders))
@@ -521,12 +556,48 @@ def variable_reliability(
         variable=data.variable.name,
         type=data.variable.type,
         coders=data.coders,
-        alpha=_alpha_record(data, patterns),
-        kappa=_kappa_record(data, pairs) if pairs is not None else None,
+        alpha=_alpha_record(data, patterns, _spread(alphas, resamples, confidence, "alpha")),
+        kappa=(
+            _kappa_record(data, pairs, _spread(kappas, resamples, confidence, "kappa"))
+            if pairs is not None
+            else None
+        ),
         notes=tuple(notes),
+        resamples=resamples,
+        seed=seed,
+        confidence=confidence,
         codebook_hash=codebook.content_hash(),
         reliacode_version=__version__,
     )
+
+
+def _bootstrap_settings(
+    resamples: object, seed: object, confidence: object
+) -> tuple[int, int, float]:
+    if isinstance(resamples, bool) or not isinstance(resamples, int) or resamples < 0:
+        raise ValueError(
+            "resamples should be a whole number, 0 or more (2,000 by default), but it is "
+            f"{resamples!r}."
+        )
+    if seed is None:
+        seed = random.SystemRandom().randrange(2**32)
+    elif isinstance(seed, bool) or not isinstance(seed, int):
+        raise TypeError(f"seed should be a whole number, such as 20261124, but it is {seed!r}.")
+    if (
+        isinstance(confidence, bool)
+        or not isinstance(confidence, (int, float))
+        or not 0 < confidence < 1
+    ):
+        hint = (
+            f" For a {confidence:g}% interval, write {confidence / 100:g}."
+            if isinstance(confidence, (int, float)) and 1 < confidence < 100
+            else ""
+        )
+        raise ValueError(
+            f"confidence should be a share between 0 and 1, such as 0.95, but it is "
+            f"{confidence!r}.{hint}"
+        )
+    return resamples, seed, float(confidence)
 
 
 class _Data(NamedTuple):
@@ -705,7 +776,86 @@ def _alpha(totals: _Totals) -> float | None:
     return 1 - (n - 1) * observed / expected
 
 
-def _alpha_record(data: _Data, patterns: _Patterns) -> Agreement:
+def _resampled(
+    patterns: _Patterns, pairs: "_Pairs | None", resamples: int, seed: int
+) -> tuple[list[float | None], list[float | None]]:
+    """Alpha (and kappa, with two coders) on each bootstrap resample.
+
+    A resample draws as many units as there are pairable units, with replacement, and only
+    counts how often it drew each pattern, so its totals are sums of precomputed parts. Draws use
+    ``random.Random(seed).random()``, whose sequence Python keeps the same across versions.
+    """
+    units = len(patterns.of_unit)
+    alphas: list[float | None] = []
+    kappas: list[float | None] = []
+    if not units or not resamples:
+        return alphas, kappas
+    draw = random.Random(seed).random
+    if pairs is None:
+        base, size = patterns.of_unit, len(patterns.counts)
+    else:
+        # A unit's pair of codes fixes its counts, so one count of pairs serves both.
+        base, size = pairs.of_unit, len(pairs.cells)
+        to_pattern = [0] * size
+        for unit, cell in enumerate(pairs.of_unit):
+            to_pattern[cell] = patterns.of_unit[unit]
+    for _ in range(resamples):
+        often = [0] * size
+        for _ in range(units):
+            often[base[int(draw() * units)]] += 1
+        if pairs is None:
+            alphas.append(_alpha(patterns.totals(often)))
+            continue
+        by_pattern = [0] * len(patterns.counts)
+        for cell, times in enumerate(often):
+            by_pattern[to_pattern[cell]] += times
+        alphas.append(_alpha(patterns.totals(by_pattern)))
+        kappas.append(_kappa(pairs, often))
+    return alphas, kappas
+
+
+class _Spread(NamedTuple):
+    """A coefficient's interval, or None, and the notes on how it was made."""
+
+    interval: Interval | None
+    notes: tuple[str, ...]
+
+
+def _spread(values: list[float | None], resamples: int, confidence: float, name: str) -> _Spread:
+    if not values:
+        return _Spread(None, ("No interval: resamples is 0.",) if resamples == 0 else ())
+    defined = sorted(value for value in values if value is not None)
+    if len(defined) < resamples / 2:
+        note = (
+            f"No interval: {name} is defined in only {len(defined):,} of the {resamples:,} "
+            "resamples, fewer than half. The others hold one code only."
+        )
+        return _Spread(None, (note,))
+    notes = []
+    if len(defined) < resamples:
+        notes.append(
+            f"{resamples - len(defined):,} of the {resamples:,} resamples hold one code only, so "
+            f"{name} is not defined in them. The interval comes from the other {len(defined):,}."
+        )
+    tail = (1 - confidence) / 2
+    interval = Interval(
+        low=_quantile(defined, tail),
+        high=_quantile(defined, 1 - tail),
+        confidence=confidence,
+        defined_resamples=len(defined),
+    )
+    return _Spread(interval, tuple(notes))
+
+
+def _quantile(ordered: Sequence[float], share: float) -> float:
+    """The ``share`` quantile of sorted values, interpolated linearly between the two nearest
+    (the default of numpy and of R's quantile, type 7)."""
+    position = (len(ordered) - 1) * share
+    low, high = math.floor(position), math.ceil(position)
+    return ordered[low] + (ordered[high] - ordered[low]) * (position - low)
+
+
+def _alpha_record(data: _Data, patterns: _Patterns, spread: _Spread) -> Agreement:
     totals = patterns.totals(patterns.everyone())
     value = _alpha(totals)
     reason = None
@@ -728,6 +878,8 @@ def _alpha_record(data: _Data, patterns: _Patterns) -> Agreement:
         coefficient="krippendorff_alpha",
         value=value,
         reason=reason,
+        interval=spread.interval,
+        notes=spread.notes,
         units=len(patterns.of_unit),
         pairable_values=sum(totals.n),
         percent_agreement=100 * totals.agree / totals.pairs if totals.pairs else None,
@@ -789,7 +941,7 @@ def _kappa(pairs: _Pairs, often: Sequence[int]) -> float | None:
     return (units * agree - chance) / (units * units - chance)
 
 
-def _kappa_record(data: _Data, pairs: _Pairs) -> Agreement:
+def _kappa_record(data: _Data, pairs: _Pairs, spread: _Spread) -> Agreement:
     often = pairs.everyone()
     value = _kappa(pairs, often)
     units = len(pairs.of_unit)
@@ -809,6 +961,8 @@ def _kappa_record(data: _Data, pairs: _Pairs) -> Agreement:
         coefficient="cohen_kappa",
         value=value,
         reason=reason,
+        interval=spread.interval,
+        notes=spread.notes,
         units=units,
         pairable_values=2 * units,
         percent_agreement=100 * agree / units if units else None,

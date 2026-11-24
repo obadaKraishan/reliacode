@@ -23,7 +23,8 @@ _ = None  # a missing value, as "." in the paper
 
 def alpha_of(matrix: dict[str, list[object]], codes: list[str], *, ordinal: bool = False):
     codebook = parse_codebook(one_variable(codes, ordinal=ordinal))
-    return variable_reliability(codebook, read_codes(codebook, matrix_rows("v", matrix)), "v")
+    codes = read_codes(codebook, matrix_rows("v", matrix))
+    return variable_reliability(codebook, codes, "v", resamples=0)
 
 
 # Krippendorff (2011), section A: binary data, two observers, no missing data.
@@ -122,7 +123,7 @@ def test_nominal_and_ordinal_alpha_differ_when_the_order_matters() -> None:
 def test_coders_can_be_chosen() -> None:
     codebook = parse_codebook(one_variable(["1", "2", "3", "4", "5"]))
     codes = read_codes(codebook, matrix_rows("v", SECTION_C))
-    pair = variable_reliability(codebook, codes, "v", coders=["B", "A"])
+    pair = variable_reliability(codebook, codes, "v", coders=["B", "A"], resamples=0)
     alone = alpha_of({"A": SECTION_C["A"], "B": SECTION_C["B"]}, ["1", "2", "3", "4", "5"])
     assert pair.coders == ("A", "B")
     assert pair.alpha == alone.alpha

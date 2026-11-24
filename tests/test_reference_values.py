@@ -28,5 +28,5 @@ def test_alpha_matches_the_krippendorff_package(number: int) -> None:
     table = REFERENCE["alpha"][number]
     codebook = parse_codebook(one_variable(table["codes"], ordinal=table["level"] == "ordinal"))
     codes = read_codes(codebook, matrix_rows("v", table["matrix"]))
-    alpha = variable_reliability(codebook, codes, "v").alpha.value
+    alpha = variable_reliability(codebook, codes, "v", resamples=0).alpha.value
     assert alpha == pytest.approx(table["alpha"], abs=1e-9)

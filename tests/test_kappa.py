@@ -40,7 +40,7 @@ def cross_table(codes: list[str], table: list[list[int]]) -> list[dict[str, obje
 
 def kappa_of(codes: list[str], rows: list[dict[str, object]]):
     codebook = parse_codebook(one_variable(codes))
-    return variable_reliability(codebook, read_codes(codebook, rows), "v").kappa
+    return variable_reliability(codebook, read_codes(codebook, rows), "v", resamples=0).kappa
 
 
 def test_the_sas_agreement_study() -> None:
