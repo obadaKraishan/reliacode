@@ -92,6 +92,12 @@ class RequestParameters(_Record):
     ``temperature`` is ``None`` when no temperature was sent. ``extra_body`` holds the extra
     request fields that were sent as given, such as ``{"reasoning_effort": "low"}``; it is
     empty when there were none. A field whose name looks like a credential is refused.
+
+    The last four are set by :class:`~reliacode.AnthropicBackend` and are ``None`` for the
+    other backends: ``api_version`` is the ``anthropic-version`` header sent, ``thinking`` the
+    thinking setting sent (``None`` when none was sent, so the model's default applied),
+    ``effort`` the effort level sent, and ``cache`` the cache's time to live (``"5m"`` or
+    ``"1h"``) when the system prompt was marked for caching, or ``None`` when it was not.
     """
 
     endpoint: str
@@ -101,11 +107,16 @@ class RequestParameters(_Record):
     max_tokens: int | None = None
     structured_output: bool = False
     extra_body: dict[str, Any] = Field(default_factory=dict)
+    api_version: str | None = None
+    thinking: dict[str, Any] | None = None
+    effort: str | None = None
+    cache: str | None = None
 
-    @field_validator("extra_body")
+    @field_validator("extra_body", "thinking")
     @classmethod
-    def _no_credentials(cls, value: dict[str, Any]) -> dict[str, Any]:
-        _refuse_credential_fields(value, CredentialFieldError)
+    def _no_credentials(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is not None:
+            _refuse_credential_fields(value, CredentialFieldError)
         return value
 
 
@@ -119,6 +130,13 @@ class Response(_Record):
     ``reasoning_tokens`` is the number of tokens the model spent reasoning (or thinking) before
     it answered, when the server reports it (``usage.completion_tokens_details.reasoning_tokens``).
     In that format they are part of ``completion_tokens``, not added to it.
+
+    ``cache_read_tokens`` and ``cache_write_tokens`` count the input tokens read from and written
+    to a prompt cache, when the server reports them. Like the reasoning tokens, they are part of
+    ``prompt_tokens``, which is always the whole input. ``cache_write_1h_tokens`` says how many
+    of the written tokens went to a one-hour cache (the rest went to a five-minute cache), when
+    the server says. ``batch_id`` and ``custom_id`` name the batch and the request within it
+    when the answer came through a batch (see :func:`~reliacode.code_in_batches`).
     """
 
     text: str
@@ -135,6 +153,11 @@ class Response(_Record):
     attempts: int = Field(default=1, ge=1)
     created_at: datetime
     reasoning_tokens: NonNegativeInt | None = None
+    cache_write_tokens: NonNegativeInt | None = None
+    cache_write_1h_tokens: NonNegativeInt | None = None
+    cache_read_tokens: NonNegativeInt | None = None
+    batch_id: str | None = None
+    custom_id: str | None = None
 
     @field_validator("created_at")
     @classmethod

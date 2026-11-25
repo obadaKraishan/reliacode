@@ -64,7 +64,11 @@ spread over several lines to be readable; in the file it is a single line:
     "seed": null,
     "max_tokens": null,
     "structured_output": true,
-    "extra_body": {}
+    "extra_body": {},
+    "api_version": null,
+    "thinking": null,
+    "effort": null,
+    "cache": null
   },
   "prompt_tokens": 612,
   "completion_tokens": 7,

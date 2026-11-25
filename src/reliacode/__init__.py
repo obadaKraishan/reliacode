@@ -2,6 +2,7 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
+from reliacode.anthropic_backend import AnthropicBackend
 from reliacode.backends import (
     Backend,
     BackendError,
@@ -48,6 +49,7 @@ except PackageNotFoundError:  # pragma: no cover - only when running from an uni
     __version__ = "0.0.0+unknown"
 
 __all__ = [
+    "AnthropicBackend",
     "Backend",
     "BackendError",
     "Budget",

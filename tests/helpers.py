@@ -108,6 +108,32 @@ def completion(text: str = '{"code": "positive"}', **fields: object) -> dict[str
     return body
 
 
+def anthropic_message(
+    text: str = '{"code": "positive"}', *, usage: dict[str, object] | None = None, **fields: object
+) -> dict[str, object]:
+    """A message as Anthropic's Messages API returns it, with invented ids and counts. ``usage``
+    replaces the counts, and ``fields`` replace the rest."""
+    body: dict[str, object] = {
+        "id": "msg_test_1",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-test-model",
+        "content": [{"type": "text", "text": text}],
+        "stop_reason": "end_turn",
+        "stop_sequence": None,
+        "usage": usage
+        if usage is not None
+        else {
+            "input_tokens": 50,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "output_tokens": 7,
+        },
+    }
+    body.update(fields)
+    return body
+
+
 class FakeServer:
     """A mock HTTP server for httpx: answers from a script and keeps every request it gets.
 

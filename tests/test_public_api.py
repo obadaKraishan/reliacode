@@ -59,6 +59,7 @@ BACKEND_NAMES = [
     "Response",
     "code",
     "Rule",
+    "AnthropicBackend",
 ]
 
 LEDGER_NAMES = [
@@ -222,6 +223,12 @@ def test_the_backend_and_coding_records_keep_their_fields() -> None:
         "attempts",
         "created_at",
         "reasoning_tokens",
+        # Added for the native Anthropic backend, at the end.
+        "cache_write_tokens",
+        "cache_write_1h_tokens",
+        "cache_read_tokens",
+        "batch_id",
+        "custom_id",
     ]
     assert list(RequestParameters.model_fields) == [
         "endpoint",
@@ -231,6 +238,11 @@ def test_the_backend_and_coding_records_keep_their_fields() -> None:
         "max_tokens",
         "structured_output",
         "extra_body",
+        # Added for the native Anthropic backend, at the end.
+        "api_version",
+        "thinking",
+        "effort",
+        "cache",
     ]
     assert list(CodingResult.model_fields) == [
         "unit",
