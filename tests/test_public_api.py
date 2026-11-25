@@ -58,6 +58,7 @@ BACKEND_NAMES = [
     "RequestParameters",
     "Response",
     "code",
+    "Rule",
 ]
 
 LEDGER_NAMES = [
@@ -176,6 +177,7 @@ def test_code_keeps_its_parameters_and_adds_the_ledger_at_the_end() -> None:
         ("attempts", "KEYWORD_ONLY", 2),
         ("ledger", "KEYWORD_ONLY", None),
         ("recipe", "KEYWORD_ONLY", "per_variable"),
+        ("rules", "KEYWORD_ONLY", None),
     ]
 
 

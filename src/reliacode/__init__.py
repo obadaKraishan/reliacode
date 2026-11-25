@@ -18,7 +18,7 @@ from reliacode.codebook import (
     load_codebook,
     parse_codebook,
 )
-from reliacode.coding import CodingResult, CodingRun, code
+from reliacode.coding import CodingResult, CodingRun, Rule, code
 from reliacode.errors import CodebookError, Problem
 from reliacode.ledger import (
     Budget,
@@ -72,6 +72,7 @@ __all__ = [
     "Problem",
     "RequestParameters",
     "Response",
+    "Rule",
     "Variable",
     "VariableReliability",
     "__version__",
