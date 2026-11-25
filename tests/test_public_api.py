@@ -175,6 +175,7 @@ def test_code_keeps_its_parameters_and_adds_the_ledger_at_the_end() -> None:
         ("variables", "KEYWORD_ONLY", None),
         ("attempts", "KEYWORD_ONLY", 2),
         ("ledger", "KEYWORD_ONLY", None),
+        ("recipe", "KEYWORD_ONLY", "per_variable"),
     ]
 
 
@@ -248,6 +249,7 @@ def test_the_backend_and_coding_records_keep_their_fields() -> None:
         "started_at",
         "finished_at",
         "reliacode_version",
+        "recipe",
     ]
 
 
