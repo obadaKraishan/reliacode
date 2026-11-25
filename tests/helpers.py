@@ -251,9 +251,12 @@ class FakeBatchAPI:
     STARTED = "2026-11-25T10:00:00.123456Z"
     ENDED = "2026-11-25T10:04:30.654321Z"
 
-    def __init__(self, answer, *, polls: int = 1, usage: dict | None = None) -> None:
+    def __init__(
+        self, answer, *, polls: int = 1, usage: dict | None = None, prefix: str = "msgbatch_test"
+    ) -> None:
         self.answer = answer
         self.polls = polls
+        self.prefix = prefix
         self.usage = usage
         self.batches: dict[str, dict] = {}
         self.requests: list[httpx.Request] = []
@@ -293,7 +296,7 @@ class FakeBatchAPI:
                 if isinstance(failure, BaseException):
                     raise failure
                 return failure
-            batch_id = f"msgbatch_test{len(self.batches) + 1}"
+            batch_id = f"{self.prefix}{len(self.batches) + 1}"
             self.add(batch_id, json.loads(request.content)["requests"])
             return httpx.Response(200, json=self._state(batch_id))
         parts = path.split("/")

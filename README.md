@@ -83,6 +83,18 @@ A model that refuses a temperature takes `temperature=None`, and extra request f
 `{"reasoning_effort": "low"}` go in `extra_body`. Both are recorded with every answer. See
 [docs/backends.md](docs/backends.md).
 
+For Claude models, `reliacode.AnthropicBackend` uses Anthropic's own API. It can cache the
+codebook part of the prompt that every call shares, and `reliacode.code_in_batches()` sends a
+run as Message Batches at half price. A state file lets a stopped run start again without
+sending anything twice:
+
+```python
+backend = reliacode.AnthropicBackend("claude-haiku-5-5", max_tokens=4000, cache="1h")
+batch_run = reliacode.code_in_batches(
+    codebook, texts, backend=backend, state="run-state.json", recipe="per_unit", rules=[rule]
+)
+```
+
 ## Ledger
 A ledger records every call `code()` makes: the model, the input and output tokens the server
 reported, the latency, the tries and the outcome, tied to the codebook hash, the prompt hash and
@@ -129,6 +141,7 @@ reason, never 0 or 1. See [docs/reliability.md](docs/reliability.md).
 | Cost ledger | Tokens, cost and timing for every call | done ([#2](https://github.com/obadaKraishan/reliacode/issues/2)) |
 | Reliability | Krippendorff's alpha and Cohen's kappa with bootstrap CIs | done ([#3](https://github.com/obadaKraishan/reliacode/issues/3)) |
 | One call per unit | All of a text's variables in one call, with rules across variables checked in the answer | done ([#22](https://github.com/obadaKraishan/reliacode/issues/22)) |
+| Anthropic's own API | Prompt caching and Message Batches, with cache and batch prices in the ledger and a resume that never pays twice | done ([#24](https://github.com/obadaKraishan/reliacode/issues/24)) |
 | PPI | Prediction-powered inference for prevalence estimates | planned ([#4](https://github.com/obadaKraishan/reliacode/issues/4)) |
 | Methods exporter | A Markdown and LaTeX methods paragraph | planned ([#5](https://github.com/obadaKraishan/reliacode/issues/5)) |
 
