@@ -4,6 +4,7 @@ header, and never stored, logged, shown in an error, kept in a result or written
 Every test uses a random key made when the test runs, so no key is ever written in a file.
 """
 
+import json
 import logging
 import re
 import secrets
@@ -13,8 +14,9 @@ from pathlib import Path
 import httpx
 import pytest
 
-from helpers import FakeServer, completion
+from helpers import NOON, FakeServer, completion
 from reliacode.backends import BackendError, OpenAICompatibleBackend
+from reliacode.ledger import LedgerError
 
 KEY_ENV = "RELIACODE_TEST_API_KEY"
 HOSTED = "https://api.example.org/v1"
@@ -217,3 +219,61 @@ def test_no_file_in_the_repository_holds_a_key() -> None:
         text = path.read_text(encoding="utf-8")
         for shape in KEY_SHAPES:
             assert not shape.search(text), f"{path.relative_to(ROOT)} holds a key-like string"
+
+
+# A request field that looks like a credential -----------------------------------------------------
+
+CREDENTIAL_FIELDS = [
+    lambda value: {"api_key": value},
+    lambda value: {"X-Api-Key": value},
+    lambda value: {"access_token": value},
+    lambda value: {"metadata": {"Authorization": f"Bearer {value}"}},
+    lambda value: {"client": [{"secret": value}]},
+    lambda value: {"PASSWORD": value},
+]
+
+
+@pytest.mark.parametrize("make", CREDENTIAL_FIELDS)
+def test_a_credential_field_is_refused_before_any_request_and_never_shown(make) -> None:
+    value = "test-" + secrets.token_urlsafe(24)
+    server = FakeServer(httpx.Response(200, json=completion()))
+    with pytest.raises(ValueError, match="looks like a credential") as caught:
+        OpenAICompatibleBackend(HOSTED, "m", transport=server.transport, extra_body=make(value))
+    assert server.requests == []  # nothing was sent
+    assert value not in everything_about(caught.value)
+    assert caught.value.__cause__ is None and caught.value.__context__ is None
+
+
+@pytest.mark.parametrize("make", CREDENTIAL_FIELDS)
+def test_a_credential_field_never_reaches_a_record(make, tmp_path: Path) -> None:
+    from reliacode import LedgerEntry, RequestParameters, Response, read_ledger
+    from reliacode.backends import CredentialFieldError
+
+    value = "test-" + secrets.token_urlsafe(24)
+    parameters = {"endpoint": HOSTED, "model": "m", "extra_body": make(value)}
+    with pytest.raises(CredentialFieldError) as caught:
+        RequestParameters(**parameters)
+    assert value not in everything_about(caught.value)
+    answer = {"text": "{}", "parameters": parameters, "latency_seconds": 0, "created_at": NOON}
+    with pytest.raises(CredentialFieldError) as caught:
+        Response.model_validate(answer)
+    assert value not in everything_about(caught.value)
+    line = {
+        "at": "2026-11-24T12:00:00Z",
+        "outcome": "answered",
+        "variable": "tone",
+        "parameters": parameters,
+        "codebook_hash": "sha256:" + "c" * 64,
+        "prompt_hash": "sha256:" + "d" * 64,
+        "text_hash": "sha256:" + "e" * 64,
+        "text_length": 3,
+    }
+    with pytest.raises(CredentialFieldError) as caught:
+        LedgerEntry.model_validate(line)
+    assert value not in everything_about(caught.value)
+    path = tmp_path / "ledger.jsonl"
+    path.write_text(json.dumps(line) + "\n", encoding="utf-8")
+    with pytest.raises(LedgerError) as listed:
+        read_ledger(path)
+    assert "looks like a credential" in str(listed.value)
+    assert value not in everything_about(listed.value)

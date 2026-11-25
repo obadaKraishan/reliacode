@@ -5,12 +5,13 @@ the answer and of how it was obtained. The rest of reliacode depends only on the
 interface, so any object with a matching ``complete`` method can be used as a backend.
 """
 
+import json
 import logging
 import math
 import os
 import re
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any, Protocol, runtime_checkable
 from urllib.parse import urlsplit
@@ -19,6 +20,55 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, field_validator
 
 logger = logging.getLogger(__name__)
+
+#: A field name that looks like a credential: a key, a token (but not a count of tokens, such
+#: as max_completion_tokens), a secret, a password or an authorization, in any case.
+_CREDENTIAL_NAME = re.compile(r"key|token(?!s)|secret|password|passwd|authorization", re.IGNORECASE)
+#: A field name plain enough to be quoted in an error message.
+_PLAIN_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]{0,63}")
+
+
+class CredentialFieldError(TypeError):
+    """An extra request field's name looks like a credential, so the field is refused.
+
+    It is a ``TypeError`` so that a record refusing the field never quotes its value in a
+    validation error.
+    """
+
+
+def _field_names(value: object, path: tuple[str, ...] = ()) -> Iterator[tuple[str, ...]]:
+    """Every field name in ``value`` (mappings inside lists included), as a path from the top."""
+    if isinstance(value, Mapping):
+        for name, inner in value.items():
+            if not isinstance(name, str):
+                raise TypeError(
+                    "Every field name in extra_body should be text, such as "
+                    '{"reasoning_effort": "low"}.'
+                )
+            yield (*path, name)
+            yield from _field_names(inner, (*path, name))
+    elif isinstance(value, (list, tuple)):
+        for inner in value:
+            yield from _field_names(inner, path)
+
+
+def _refuse_credential_fields(extra_body: Mapping[str, Any], error: type[Exception]) -> None:
+    """Refuse ``extra_body`` if any field name in it, at any depth, looks like a credential.
+
+    The message names the field when its name is plain, and never shows a value.
+    """
+    for path in _field_names(extra_body):
+        if not _CREDENTIAL_NAME.search(path[-1]):
+            continue
+        plain = all(_PLAIN_NAME.fullmatch(name) for name in path)
+        field = f'The extra request field "{".".join(path)}"' if plain else "A field in extra_body"
+        raise error(
+            f"{field} looks like a credential (its name contains key, token, secret, password "
+            "or authorization), so it is refused and nothing was sent. An API key belongs in an "
+            "environment variable: give the variable's name as api_key_env, and the backend "
+            "sends the key in the Authorization header only."
+        )
+
 
 #: A chat message: ``{"role": "system" | "user" | "assistant", "content": "..."}``.
 Message = Mapping[str, str]
@@ -37,7 +87,12 @@ class _Record(BaseModel):
 
 
 class RequestParameters(_Record):
-    """What was asked of a backend: where the request went, which model, and which settings."""
+    """What was asked of a backend: where the request went, which model, and which settings.
+
+    ``temperature`` is ``None`` when no temperature was sent. ``extra_body`` holds the extra
+    request fields that were sent as given, such as ``{"reasoning_effort": "low"}``; it is
+    empty when there were none. A field whose name looks like a credential is refused.
+    """
 
     endpoint: str
     model: str
@@ -45,6 +100,13 @@ class RequestParameters(_Record):
     seed: int | None = None
     max_tokens: int | None = None
     structured_output: bool = False
+    extra_body: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("extra_body")
+    @classmethod
+    def _no_credentials(cls, value: dict[str, Any]) -> dict[str, Any]:
+        _refuse_credential_fields(value, CredentialFieldError)
+        return value
 
 
 class Response(_Record):
@@ -354,6 +416,15 @@ class OpenAICompatibleBackend:
             request leaves the test.
         sleep: the function used to wait between tries. Tests replace it.
         clock: a function that returns seconds, used to measure the latency. Tests replace it.
+        extra_body: extra request fields, sent as given in every request and recorded in every
+            response's ``parameters.extra_body`` (and so in every ledger line), such as
+            ``{"reasoning_effort": "low"}`` or ``{"chat_template_kwargs": {"enable_thinking":
+            False}}``. The values must be JSON values. Fields the backend sets itself
+            (``model``, ``messages``, ``stream``, ``temperature``, ``seed``, ``max_tokens``
+            and ``response_format``) are refused, and so is any field, at any depth, whose name
+            looks like a credential (it contains key, token, secret, password or
+            authorization; a count such as ``max_completion_tokens`` is not one). Never put a
+            key or a coded text here: the fields are kept in every record.
     """
 
     def __init__(
@@ -371,7 +442,10 @@ class OpenAICompatibleBackend:
         transport: httpx.BaseTransport | None = None,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.perf_counter,
+        extra_body: Mapping[str, Any] | None = None,
     ) -> None:
+        # First, so that a field that looks like a credential is refused before anything else.
+        self._extra_body = _check_extra_body(extra_body)
         self.base_url = _check_base_url(base_url)
         self.model = _check_model(model)
         self.api_key_env = _check_key_name(api_key_env)
@@ -393,6 +467,11 @@ class OpenAICompatibleBackend:
     def endpoint(self) -> str:
         """The full address that requests are sent to."""
         return self.base_url + _CHAT_PATH
+
+    @property
+    def extra_body(self) -> dict[str, Any]:
+        """A copy of the extra request fields sent with every request."""
+        return json.loads(self._extra_body)
 
     def complete(
         self, messages: Sequence[Message], *, json_schema: Mapping[str, Any] | None = None
@@ -420,6 +499,7 @@ class OpenAICompatibleBackend:
                 "type": "json_schema",
                 "json_schema": {"name": "answer", "strict": True, "schema": dict(json_schema)},
             }
+        body.update(self.extra_body)  # never one of the fields above: those are refused
         parameters = RequestParameters(
             endpoint=self.endpoint,
             model=self.model,
@@ -427,6 +507,7 @@ class OpenAICompatibleBackend:
             seed=self.seed,
             max_tokens=self.max_tokens,
             structured_output=structured,
+            extra_body=self.extra_body,
         )
         answer, latency, attempts = self._send(body, headers, key)
         if answer.status_code >= 300:
@@ -756,6 +837,44 @@ def _check_base_url(base_url: object) -> str:
     if parts.scheme not in ("http", "https") or not host:
         raise ValueError(f"base_url should start with http:// or https:// and a server, {example}.")
     return url
+
+
+#: The request fields the backend sets itself, and what to use instead.
+_OWN_FIELDS = {
+    "model": "Give the model as the backend's model argument.",
+    "messages": "The messages are the ones given to complete().",
+    "stream": 'The backend always sends "stream": false, because it reads one whole answer.',
+    "temperature": "Use the backend's temperature setting (temperature=None leaves it out).",
+    "seed": "Use the backend's seed setting.",
+    "max_tokens": "Use the backend's max_tokens setting.",
+    "response_format": (
+        "Use structured_output=True, which sends the answer's JSON Schema as response_format."
+    ),
+}
+_EXTRA_EXAMPLE = '{"reasoning_effort": "low"}'
+
+
+def _check_extra_body(extra_body: object) -> str:
+    """The extra request fields, checked, as JSON text (so every use gets a fresh copy)."""
+    if extra_body is None:
+        return "{}"
+    if not isinstance(extra_body, Mapping):
+        raise TypeError(
+            f"extra_body should be a mapping of field names to values, such as {_EXTRA_EXAMPLE}."
+        )
+    _refuse_credential_fields(extra_body, ValueError)
+    for name in extra_body:
+        if name in _OWN_FIELDS:
+            raise ValueError(
+                f'extra_body names "{name}", a field the backend sets itself. {_OWN_FIELDS[name]}'
+            )
+    try:
+        return json.dumps(dict(extra_body), allow_nan=False)
+    except (TypeError, ValueError):
+        raise TypeError(
+            "extra_body should hold only JSON values: text, numbers, True or False, None, and "
+            f"lists and mappings of them, such as {_EXTRA_EXAMPLE}."
+        ) from None
 
 
 def _check_key_name(name: object) -> str | None:

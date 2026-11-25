@@ -193,6 +193,7 @@ def test_the_backends_keep_their_parameters() -> None:
         ("transport", "KEYWORD_ONLY", None),
         ("sleep", "KEYWORD_ONLY", time.sleep),
         ("clock", "KEYWORD_ONLY", time.perf_counter),
+        ("extra_body", "KEYWORD_ONLY", None),
     ]
     assert parameters(FakeBackend.__init__) == [
         ("self", "POSITIONAL_OR_KEYWORD", EMPTY),
@@ -225,6 +226,7 @@ def test_the_backend_and_coding_records_keep_their_fields() -> None:
         "seed",
         "max_tokens",
         "structured_output",
+        "extra_body",
     ]
     assert list(CodingResult.model_fields) == [
         "unit",

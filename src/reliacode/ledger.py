@@ -28,7 +28,13 @@ from pydantic import (
     model_validator,
 )
 
-from reliacode.backends import BackendError, RequestParameters, Response, utc_now
+from reliacode.backends import (
+    BackendError,
+    CredentialFieldError,
+    RequestParameters,
+    Response,
+    utc_now,
+)
 
 #: Version of the ledger's line format. Every line records the version it was written with,
 #: and a line from a newer version is refused when the file is read.
@@ -433,6 +439,11 @@ def _read_line(raw: bytes) -> tuple[LedgerEntry | None, str | None]:
         return LedgerEntry.model_validate(data), None
     except ValidationError as exc:
         return None, _validation_problem(exc)
+    except CredentialFieldError:
+        return None, (
+            "it is not a valid ledger line. parameters.extra_body: a field name looks like a "
+            "credential, and reliacode never records such a field."
+        )
 
 
 def _validation_problem(exc: ValidationError) -> str:
