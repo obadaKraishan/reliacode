@@ -207,6 +207,30 @@ def test_the_backends_keep_their_parameters() -> None:
     ]
 
 
+def test_the_anthropic_backend_keeps_its_parameters() -> None:
+    from reliacode import AnthropicBackend
+
+    assert parameters(AnthropicBackend.__init__) == [
+        ("self", "POSITIONAL_OR_KEYWORD", EMPTY),
+        ("model", "POSITIONAL_OR_KEYWORD", EMPTY),
+        ("api_key_env", "KEYWORD_ONLY", "ANTHROPIC_API_KEY"),
+        ("max_tokens", "KEYWORD_ONLY", 4096),
+        ("cache", "KEYWORD_ONLY", None),
+        ("thinking", "KEYWORD_ONLY", None),
+        ("effort", "KEYWORD_ONLY", None),
+        ("structured_output", "KEYWORD_ONLY", True),
+        ("temperature", "KEYWORD_ONLY", None),
+        ("extra_body", "KEYWORD_ONLY", None),
+        ("base_url", "KEYWORD_ONLY", "https://api.anthropic.com"),
+        ("api_version", "KEYWORD_ONLY", "2026-10-21"),
+        ("timeout", "KEYWORD_ONLY", 600.0),
+        ("max_retries", "KEYWORD_ONLY", 3),
+        ("transport", "KEYWORD_ONLY", None),
+        ("sleep", "KEYWORD_ONLY", time.sleep),
+        ("clock", "KEYWORD_ONLY", time.perf_counter),
+    ]
+
+
 def test_the_backend_and_coding_records_keep_their_fields() -> None:
     assert list(Response.model_fields) == [
         "text",

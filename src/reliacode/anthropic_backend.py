@@ -64,6 +64,12 @@ _DEFAULT_BASE_URL = "https://api.anthropic.com"
 _RETRY_STATUSES = {408, 409, 429}
 #: The cache's times to live that the Messages API offers (``cache_control.ttl``).
 _CACHE_TTLS = ("5m", "1h")
+#: The effort levels and the thinking types the Messages API documents.
+_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+_THINKING_TYPES = ("adaptive", "enabled", "between_tools", "disabled")
+_THINKING_DISPLAYS = ("summarized", "omitted", "updates")
+_THINKING_WORD = re.compile(r"\bthinking|budget_tokens", re.IGNORECASE)
+_EFFORT_WORD = re.compile(r"\beffort\b", re.IGNORECASE)
 
 
 class AnthropicBackend:
@@ -88,6 +94,19 @@ class AnthropicBackend:
             caching changes no prompt text and no prompt hash. A prompt shorter than the
             model's minimum is not cached, and the API says nothing; reliacode logs a warning
             when an answer shows that nothing was read from or written to the cache.
+        thinking: the thinking setting, sent as given in the request's ``thinking`` field and
+            recorded, such as ``{"type": "adaptive"}``. ``None`` (the default) sends no field,
+            so the model's own default applies, and the record says none was sent. Its
+            ``"type"`` is one the Messages API documents: ``"adaptive"``, ``"enabled"`` (with
+            ``"budget_tokens"``, for older models), ``"between_tools"`` or ``"disabled"``. Which
+            ones a model takes differs by model; a refused setting is explained. The thinking
+            tokens are counted when the API reports them; no thinking text is ever kept.
+        effort: how much the model thinks and writes, sent as ``output_config.effort``:
+            ``"low"``, ``"medium"``, ``"high"``, ``"xhigh"`` or ``"max"``. ``None`` (the default)
+            sends none, so the model's default applies.
+        structured_output: when a JSON Schema is given for the answer, send it to the API (as
+            ``output_config.format``), so the model is held to it. Set it to ``False`` for a
+            model that refuses it; the answer is still checked.
         temperature: the sampling temperature. The default, ``None``, sends none, and the record
             says none was sent. API version 2026-10-21 refuses a temperature on every model, so
             give one only with an older ``api_version`` and a model that takes it.
@@ -116,6 +135,9 @@ class AnthropicBackend:
         api_key_env: str = "ANTHROPIC_API_KEY",
         max_tokens: int = 4096,
         cache: Literal["5m", "1h"] | None = None,
+        thinking: Mapping[str, Any] | None = None,
+        effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None,
+        structured_output: bool = True,
         temperature: float | None = None,
         extra_body: Mapping[str, Any] | None = None,
         base_url: str = _DEFAULT_BASE_URL,
@@ -147,6 +169,17 @@ class AnthropicBackend:
             )
         self.cache = cache
         self._warned_uncached = False
+        self._thinking = _check_thinking(thinking, max_tokens)
+        if effort is not None and effort not in _EFFORTS:
+            shown = repr(effort) if isinstance(effort, str) else type(effort).__name__
+            raise ValueError(
+                f"effort should be one of {', '.join(_EFFORTS)} or None (the model's default), "
+                f"but it is {shown}."
+            )
+        self.effort = effort
+        if not isinstance(structured_output, bool):
+            raise TypeError("structured_output should be True or False.")
+        self.structured_output = structured_output
         self.temperature = (
             None if temperature is None else _check_number("temperature", temperature, minimum=0)
         )
@@ -171,6 +204,11 @@ class AnthropicBackend:
     def extra_body(self) -> dict[str, Any]:
         """A copy of the extra request fields sent with every request."""
         return json.loads(self._extra_body)
+
+    @property
+    def thinking(self) -> dict[str, Any] | None:
+        """A copy of the thinking setting sent with every request, or ``None``."""
+        return None if self._thinking is None else json.loads(self._thinking)
 
     def complete(
         self, messages: Sequence[Message], *, json_schema: Mapping[str, Any] | None = None
@@ -218,14 +256,28 @@ class AnthropicBackend:
         body["messages"] = conversation
         if self.temperature is not None:
             body["temperature"] = self.temperature
+        if self._thinking is not None:
+            body["thinking"] = self.thinking
+        structured = self.structured_output and json_schema is not None
+        output_config: dict[str, Any] = {}
+        if self.effort is not None:
+            output_config["effort"] = self.effort
+        if structured:
+            assert json_schema is not None
+            output_config["format"] = {"type": "json_schema", "schema": dict(json_schema)}
+        if output_config:
+            body["output_config"] = output_config
         body.update(self.extra_body)  # never one of the fields above: those are refused
         parameters = RequestParameters(
             endpoint=self.endpoint,
             model=self.model,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
+            structured_output=structured,
             extra_body=self.extra_body,
             api_version=self.api_version,
+            thinking=self.thinking,
+            effort=self.effort,
             cache=cached,
         )
         return body, parameters
@@ -499,6 +551,17 @@ class AnthropicBackend:
                 " This model or API version may not take a temperature: create the backend "
                 "with temperature=None (the default), and the field is left out of the request."
             )
+        elif _THINKING_WORD.search(message) and self._thinking is not None:
+            hint = (
+                " This model may not take this thinking setting: check it against the model's "
+                "row in Anthropic's thinking documentation, or leave thinking=None for the "
+                "model's default."
+            )
+        elif _EFFORT_WORD.search(message) and self.effort is not None:
+            hint = (
+                " This model may not take this effort level: choose another, or leave "
+                "effort=None for the model's default."
+            )
         elif _SCHEMA_WORDS.search(message):
             hint = (
                 " The model may not support structured output: create the backend with "
@@ -621,6 +684,44 @@ def _split_system(messages: list[dict[str, str]]) -> tuple[list[str], list[dict[
                 "sends system messages at the start of the conversation only: put them first."
             )
     return system, rest
+
+
+def _check_thinking(thinking: object, max_tokens: int) -> str | None:
+    """The thinking setting, checked, as JSON text (so every use gets a fresh copy)."""
+    if thinking is None:
+        return None
+    example = '{"type": "adaptive"}'
+    if not isinstance(thinking, Mapping):
+        raise TypeError(f"thinking should be a mapping, such as {example}, or None.")
+    _refuse_credential_fields(thinking, ValueError)
+    kind = thinking.get("type")
+    if kind not in _THINKING_TYPES:
+        shown = repr(kind) if isinstance(kind, str) else "missing"
+        raise ValueError(
+            f'thinking needs a "type" the Messages API documents ({", ".join(_THINKING_TYPES)}), '
+            f"such as {example}, but its type is {shown}."
+        )
+    display = thinking.get("display")
+    if display is not None and display not in _THINKING_DISPLAYS:
+        raise ValueError(
+            f'thinking\'s "display" should be one of {", ".join(_THINKING_DISPLAYS)}, if given.'
+        )
+    if kind == "enabled":
+        budget = thinking.get("budget_tokens")
+        if (
+            isinstance(budget, bool)
+            or not isinstance(budget, int)
+            or not 1024 <= budget < max_tokens
+        ):
+            raise ValueError(
+                'thinking of type "enabled" needs "budget_tokens": a whole number of at least '
+                f"1,024 and less than max_tokens ({max_tokens:,}). Newer models refuse "
+                f'"enabled" and think adaptively instead: try {example}.'
+            )
+    try:
+        return json.dumps(dict(thinking), allow_nan=False)
+    except (TypeError, ValueError):
+        raise TypeError(f"thinking should hold only JSON values, such as {example}.") from None
 
 
 def _error_message(data: dict[str, Any], key: str | None) -> str:
