@@ -22,8 +22,11 @@ from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, field_validat
 logger = logging.getLogger(__name__)
 
 #: A field name that looks like a credential: a key, a token (but not a count of tokens, such
-#: as max_completion_tokens), a secret, a password or an authorization, in any case.
-_CREDENTIAL_NAME = re.compile(r"key|token(?!s)|secret|password|passwd|authorization", re.IGNORECASE)
+#: as max_completion_tokens), a secret, a password, an auth (authorization, oauth), a
+#: credential, a bearer or a cookie, in any case.
+_CREDENTIAL_NAME = re.compile(
+    r"key|token(?!s)|secret|password|passwd|auth|credential|bearer|cookie", re.IGNORECASE
+)
 #: A field name plain enough to be quoted in an error message.
 _PLAIN_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]{0,63}")
 
@@ -63,8 +66,9 @@ def _refuse_credential_fields(extra_body: Mapping[str, Any], error: type[Excepti
         plain = all(_PLAIN_NAME.fullmatch(name) for name in path)
         field = f'The extra request field "{".".join(path)}"' if plain else "A field in extra_body"
         raise error(
-            f"{field} looks like a credential (its name contains key, token, secret, password "
-            "or authorization), so it is refused and nothing was sent. An API key belongs in an "
+            f"{field} looks like a credential (its name contains key, token, secret, password, "
+            "auth, credential, bearer or cookie), so it is refused and nothing was sent. An API "
+            "key belongs in an "
             "environment variable: give the variable's name as api_key_env, and the backend "
             "sends the key in the Authorization header only."
         )
@@ -450,9 +454,9 @@ class OpenAICompatibleBackend:
             False}}``. The values must be JSON values. Fields the backend sets itself
             (``model``, ``messages``, ``stream``, ``temperature``, ``seed``, ``max_tokens``
             and ``response_format``) are refused, and so is any field, at any depth, whose name
-            looks like a credential (it contains key, token, secret, password or
-            authorization; a count such as ``max_completion_tokens`` is not one). Never put a
-            key or a coded text here: the fields are kept in every record.
+            looks like a credential (it contains key, token, secret, password, auth,
+            credential, bearer or cookie; a count such as ``max_completion_tokens`` is not one).
+            Never put a key or a coded text here: the fields are kept in every record.
     """
 
     def __init__(

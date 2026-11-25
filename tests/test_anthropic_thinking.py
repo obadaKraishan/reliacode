@@ -84,6 +84,7 @@ def test_an_older_models_budget_is_sent_when_it_fits_the_token_limit() -> None:
         ({"type": "adaptive", "display": "full"}, '"display" should be one of'),
         ({"type": "adaptive", "extra": float("nan")}, "only JSON values"),
         ({"type": "adaptive", "api_key": "x"}, "looks like a credential"),
+        ({"type": "adaptive", "cookie": "x"}, "looks like a credential"),
     ],
 )
 def test_a_thinking_setting_the_api_does_not_document_is_refused(setting, problem) -> None:

@@ -93,9 +93,10 @@ Servers differ in the request fields they take. Three things help:
   - **A field the backend sets itself:** `model`, `messages`, `stream`, `temperature`, `seed`,
     `max_tokens` and `response_format`. Use the backend's own settings for these.
   - **A field whose name looks like a credential,** at any depth: its name contains key, token,
-    secret, password or authorization, in any case. A count such as `max_completion_tokens` or
-    `budget_tokens` is not one. The error names the field but never shows its value. A key
-    belongs in an environment variable, named with `api_key_env`.
+    secret, password, auth, credential, bearer or cookie, in any case. A count such as
+    `max_completion_tokens` or `budget_tokens` is not one. A name such as `author` is refused
+    too, since it holds "auth": rename such a field. The error names the field but never shows
+    its value. A key belongs in an environment variable, named with `api_key_env`.
 
   Never put a coded text or a key in `extra_body`: the fields are kept in every record.
 - **Reasoning tokens** are the tokens a model spends reasoning (or thinking) before it answers.
