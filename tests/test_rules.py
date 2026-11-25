@@ -314,3 +314,16 @@ def test_the_severity_rule_of_the_incivility_codebook() -> None:
         rules=[rule],
     )
     assert run.table() == [{"unit": 0, "incivility_form": "aspersion", "severity": "mild"}]
+
+
+def test_a_run_with_rules_survives_a_json_round_trip() -> None:
+    from reliacode import CodingRun
+    from reliacode.coding import UnitPrompt
+
+    run, _ = run_with([answer("transport", "schools")])
+    again = CodingRun.model_validate_json(run.model_dump_json())
+    assert again == run
+    prompt = again.prompts[0]
+    assert isinstance(prompt, UnitPrompt)
+    assert prompt.rules == {NOT_THE_SAME.text: ("primary_topic", "secondary_topic")}
+    assert "check" not in run.model_dump_json()  # a rule's check is never saved
