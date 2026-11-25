@@ -50,7 +50,7 @@ spread over several lines to be readable; in the file it is a single line:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "at": "2026-11-19T15:04:05Z",
   "outcome": "answered",
   "variable": "dominant_frame",
@@ -63,7 +63,8 @@ spread over several lines to be readable; in the file it is a single line:
     "temperature": 0.0,
     "seed": null,
     "max_tokens": null,
-    "structured_output": true
+    "structured_output": true,
+    "extra_body": {}
   },
   "prompt_tokens": 612,
   "completion_tokens": 7,
@@ -78,7 +79,8 @@ spread over several lines to be readable; in the file it is a single line:
   "codebook_hash": "sha256:b4bdbacd8a7fae5da8725e4bd5c2f5f5a44187922e5ec380a2b21f2ee491bdb1",
   "prompt_hash": "sha256:496fc7e5326a23fa332fe78c97a30e6db3ac9c2ce5fd837d90e804f16c76ff30",
   "text_hash": "sha256:bae6f67f699680cfbec6973dd1b2c6ebb2e84483c3d37d000f08c8aaee76c44a",
-  "text_length": 53
+  "text_length": 53,
+  "reasoning_tokens": null
 }
 ```
 
@@ -88,18 +90,30 @@ spread over several lines to be readable; in the file it is a single line:
   - `asked_again`: it could not, and the model was asked again.
   - `missing`: it could not, and no try was left.
   - `failed`: no answer came.
+- `schema_version`: the version of the line's format, now 2. Version 2 added `reasoning_tokens`
+  and `parameters.extra_body`. Lines written with version 1 are still read, with no reasoning
+  tokens and no extra fields, and a file can hold lines of both versions.
 - `ask`: 1 for the first question about a text and variable, 2 for the second.
 - `model_requested` and `model_returned`: the model asked for, and the name the server gave in
   its answer, which can be more exact.
 - `parameters`: the settings of the request, as in `reliacode.RequestParameters`.
+  - Its `temperature` is `null` when no temperature was sent.
+  - Its `extra_body` holds the extra request fields, as given (see
+    [Request fields](backends.md#request-fields-temperature-reasoning-and-other-settings)).
 - `prompt_tokens` and `completion_tokens`: the input and output tokens, as the server reported
   them in its answer's usage field. `token_source` is `"server"` when they are there.
+- `reasoning_tokens`: the tokens the model spent reasoning, when the server reports them
+  (`usage.completion_tokens_details.reasoning_tokens`). They are part of `completion_tokens`, so
+  they are counted once in the cost. A server that does not report them leaves `null`.
 - `latency_seconds`, `finish_reason`, `response_id` and `request_id`: as the server gave them.
 - `attempts`: the tries sent to the server for this call, retries after passing problems
   included.
 - `error_reason` and `http_status`: for a failed call, the kind of problem (such as
   `"timeout"` or `"rate_limited"`) and the server's status code.
-- `codebook_hash`, `prompt_hash` and `variable`: what the call was for.
+- `codebook_hash`, `prompt_hash` and `variable`: what the call was for. With one call per unit
+  (`recipe="per_unit"`), one call asks for several variables. `variable` then names every one,
+  joined by `+`, such as `incivility_form+severity`. `outcome` is then `missing` when any of
+  them is still missing after the last answer.
 - `text_hash` and `text_length`: the SHA-256 hash of the coded text and its length in
   characters, which tie the call to its text.
 
@@ -120,7 +134,9 @@ at once can mix their lines. Give each run its own file, or run them one after t
   same care as the texts.
 - **the prompt or the messages sent.** The prompt hash identifies them.
 - **the model's answer.** The codes are in the results of `code()`, not in the ledger.
-- **the API key.**
+- **the API key.** An extra request field whose name looks like a credential is refused before
+  any request, so it never reaches a line. The extra fields you give are kept as given, so never
+  put a text or a key in them.
 - **a server's error message.** It can quote the request, so only the kind of problem is kept.
 
 ## Token counts that are missing

@@ -64,7 +64,23 @@ run.table()  # one row per text, with one code per variable
 An answer that is not one of the codes is asked again once, then recorded as missing with the
 raw answers kept. Every result records the model, the endpoint, the parameters, the codebook's
 content hash, the prompt hash and the time. Hosted services work the same way, with the API key
-read from an environment variable; text sent to them leaves your computer. See
+read from an environment variable; text sent to them leaves your computer.
+
+By default each variable gets its own call. With `recipe="per_unit"`, one call per text asks for
+all the variables together, and rules across variables can be stated in the prompt and checked
+in the answer:
+
+```python
+rule = reliacode.Rule(
+    text="Severity is none if and only if incivility_form is none.",
+    variables=["incivility_form", "severity"],
+    check=lambda codes: (codes["severity"] == "none") == (codes["incivility_form"] == "none"),
+)
+run = reliacode.code(codebook, texts, backend=backend, recipe="per_unit", rules=[rule])
+```
+
+A model that refuses a temperature takes `temperature=None`, and extra request fields such as
+`{"reasoning_effort": "low"}` go in `extra_body`. Both are recorded with every answer. See
 [docs/backends.md](docs/backends.md).
 
 ## Ledger
@@ -112,6 +128,7 @@ reason, never 0 or 1. See [docs/reliability.md](docs/reliability.md).
 | Backend adapter | One `code()` runner for any OpenAI-compatible endpoint | done ([#1](https://github.com/obadaKraishan/reliacode/issues/1)) |
 | Cost ledger | Tokens, cost and timing for every call | done ([#2](https://github.com/obadaKraishan/reliacode/issues/2)) |
 | Reliability | Krippendorff's alpha and Cohen's kappa with bootstrap CIs | done ([#3](https://github.com/obadaKraishan/reliacode/issues/3)) |
+| One call per unit | All of a text's variables in one call, with rules across variables checked in the answer | done ([#22](https://github.com/obadaKraishan/reliacode/issues/22)) |
 | PPI | Prediction-powered inference for prevalence estimates | planned ([#4](https://github.com/obadaKraishan/reliacode/issues/4)) |
 | Methods exporter | A Markdown and LaTeX methods paragraph | planned ([#5](https://github.com/obadaKraishan/reliacode/issues/5)) |
 

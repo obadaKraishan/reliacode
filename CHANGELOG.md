@@ -119,8 +119,50 @@ All notable changes to this project are recorded here. The format follows
     coverage simulation.
   - `docs/reliability.md`: an example from start to finish, what each figure means, the interval
     and its seed, the undefined cases, and reporting reliability in a methods section.
+- Request fields for `OpenAICompatibleBackend`, with no new dependency:
+  - `temperature=None` leaves the temperature out of the request, for models that refuse it;
+    the record's `parameters.temperature` is then `None`. The default stays 0. A server that
+    says a temperature is not supported gets the hint `temperature=None` in the error.
+  - `extra_body={...}` sends extra request fields as given, such as `reasoning_effort`,
+    `thinking` or `chat_template_kwargs`, and records them in `RequestParameters.extra_body`,
+    so in every response and every ledger line. Fields the backend sets itself are refused, and
+    so is any field, at any depth, whose name looks like a credential (key, token, secret,
+    password or authorization; a count such as `max_completion_tokens` is not one). The refusal
+    comes before any request and never shows the value, and a record refuses such a field too.
+  - `Response.reasoning_tokens` and the ledger line's `reasoning_tokens` count the reasoning
+    tokens when the server reports them (`usage.completion_tokens_details.reasoning_tokens`).
+    A missing count stays `None`, never 0.
+  - `docs/backends.md` quotes what Anthropic's OpenAI-compatible endpoint and vLLM's server
+    accept, as their documentation read on 2026-11-24 says, with an example from start to finish.
+- One call per unit, a second recipe beside one call per variable:
+  - `code(..., recipe="per_unit")` asks for all the variables of a text (or the ones named) in
+    one call, and reads one JSON object with one code per variable, each checked against its
+    variable's codes. The answer's JSON Schema is sent where the backend takes one.
+  - `reliacode.Rule(text, variables, check)` gives rules across variables, with
+    `code(..., recipe="per_unit", rules=[...])`. They are stated in the prompt and checked in
+    each answer. The codebook format does not change.
+  - A broken answer (not JSON, a variable missing, an unknown code, or a broken rule) is asked
+    once more, with each problem named and the text never quoted. The last answer decides: a
+    variable still unusable is missing with its reason, a broken rule makes the variables it
+    names missing, and the others keep their codes.
+  - The results stay one per text and variable, and the ledger keeps one line per call, whose
+    `variable` names every variable asked, joined by `+`. `CodingRun.recipe` says which recipe
+    ran.
+  - `reliacode.coding.build_unit_prompt`, `UnitPrompt`, `unit_answer_schema` and
+    `UNIT_PROMPT_VERSION` (1). The unit prompt hash covers the prompt, the templates, the
+    schema and the rules' sentences and variables.
+  - The default recipe is unchanged. Its prompts, prompt hashes and HTTP requests are pinned to
+    what they were before this change, byte for byte, by `tests/test_default_prompts.py`.
+  - `docs/backends.md` has a section with an example from start to finish.
 
 ### Changed
+- **The ledger line format is now version 2** (`LEDGER_VERSION`): lines gain `reasoning_tokens`
+  and `parameters.extra_body`. Lines written with version 1 are still read, and a file can hold
+  both. An older reliacode refuses version 2 lines with a message that says to update it.
+- `code()` no longer writes any word of an unusable answer to the log: the INFO line names only
+  the kind of problem, such as "the answer is not a JSON object". The answer stays in
+  `CodingResult.answers` and in the missing reason, and the message sent to the model for its
+  second try is unchanged.
 - The example codebooks were revised after the author's review, so **both content hashes
   changed**:
   - `incivility.yaml`:
