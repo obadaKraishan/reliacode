@@ -179,6 +179,45 @@ def test_a_name_that_looks_like_a_credential_is_refused(extra: dict, named: str)
     assert "api_key_env" in message
 
 
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"auth": "x"},
+        {"x_auth_header": "x"},
+        {"oauth": {"state": "x"}},
+        {"Credentials": "x"},
+        {"service_credential_id": "x"},
+        {"bearer": "x"},
+        {"BearerValue": "x"},
+        {"cookie": "x"},
+        {"metadata": {"set_cookie": "x"}},
+        {"author": "x"},  # holds "auth": refused too, by the plain rule
+    ],
+)
+def test_names_with_auth_credential_bearer_or_cookie_are_refused(extra: dict) -> None:
+    server = FakeServer(ok())
+    with pytest.raises(ValueError, match="auth, credential, bearer or cookie"):
+        backend_for(server, extra_body=extra)
+    assert server.requests == []
+    with pytest.raises(CredentialFieldError):
+        RequestParameters(endpoint="e", model="m", extra_body=extra)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"reasoning_effort": "low"},
+        {"chat_template_kwargs": {"enable_thinking": False}},
+        {"metadata": {"user_id": "study-a"}},
+        {"top_k": 20, "repetition_penalty": 1.05},
+    ],
+)
+def test_ordinary_names_are_still_sent(extra: dict) -> None:
+    server = FakeServer(ok())
+    backend_for(server, extra_body=extra).complete(MESSAGES)
+    assert {name: server.body()[name] for name in extra} == extra
+
+
 def test_a_record_refuses_a_credential_name_too() -> None:
     with pytest.raises(CredentialFieldError, match="looks like a credential"):
         RequestParameters(endpoint="e", model="m", extra_body={"api_key": "x"})

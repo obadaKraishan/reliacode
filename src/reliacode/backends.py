@@ -22,8 +22,11 @@ from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, field_validat
 logger = logging.getLogger(__name__)
 
 #: A field name that looks like a credential: a key, a token (but not a count of tokens, such
-#: as max_completion_tokens), a secret, a password or an authorization, in any case.
-_CREDENTIAL_NAME = re.compile(r"key|token(?!s)|secret|password|passwd|authorization", re.IGNORECASE)
+#: as max_completion_tokens), a secret, a password, an auth (authorization, oauth), a
+#: credential, a bearer or a cookie, in any case.
+_CREDENTIAL_NAME = re.compile(
+    r"key|token(?!s)|secret|password|passwd|auth|credential|bearer|cookie", re.IGNORECASE
+)
 #: A field name plain enough to be quoted in an error message.
 _PLAIN_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_-]{0,63}")
 
@@ -63,8 +66,9 @@ def _refuse_credential_fields(extra_body: Mapping[str, Any], error: type[Excepti
         plain = all(_PLAIN_NAME.fullmatch(name) for name in path)
         field = f'The extra request field "{".".join(path)}"' if plain else "A field in extra_body"
         raise error(
-            f"{field} looks like a credential (its name contains key, token, secret, password "
-            "or authorization), so it is refused and nothing was sent. An API key belongs in an "
+            f"{field} looks like a credential (its name contains key, token, secret, password, "
+            "auth, credential, bearer or cookie), so it is refused and nothing was sent. An API "
+            "key belongs in an "
             "environment variable: give the variable's name as api_key_env, and the backend "
             "sends the key in the Authorization header only."
         )
@@ -92,6 +96,12 @@ class RequestParameters(_Record):
     ``temperature`` is ``None`` when no temperature was sent. ``extra_body`` holds the extra
     request fields that were sent as given, such as ``{"reasoning_effort": "low"}``; it is
     empty when there were none. A field whose name looks like a credential is refused.
+
+    The last four are set by :class:`~reliacode.AnthropicBackend` and are ``None`` for the
+    other backends: ``api_version`` is the ``anthropic-version`` header sent, ``thinking`` the
+    thinking setting sent (``None`` when none was sent, so the model's default applied),
+    ``effort`` the effort level sent, and ``cache`` the cache's time to live (``"5m"`` or
+    ``"1h"``) when the system prompt was marked for caching, or ``None`` when it was not.
     """
 
     endpoint: str
@@ -101,11 +111,16 @@ class RequestParameters(_Record):
     max_tokens: int | None = None
     structured_output: bool = False
     extra_body: dict[str, Any] = Field(default_factory=dict)
+    api_version: str | None = None
+    thinking: dict[str, Any] | None = None
+    effort: str | None = None
+    cache: str | None = None
 
-    @field_validator("extra_body")
+    @field_validator("extra_body", "thinking")
     @classmethod
-    def _no_credentials(cls, value: dict[str, Any]) -> dict[str, Any]:
-        _refuse_credential_fields(value, CredentialFieldError)
+    def _no_credentials(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        if value is not None:
+            _refuse_credential_fields(value, CredentialFieldError)
         return value
 
 
@@ -119,6 +134,13 @@ class Response(_Record):
     ``reasoning_tokens`` is the number of tokens the model spent reasoning (or thinking) before
     it answered, when the server reports it (``usage.completion_tokens_details.reasoning_tokens``).
     In that format they are part of ``completion_tokens``, not added to it.
+
+    ``cache_read_tokens`` and ``cache_write_tokens`` count the input tokens read from and written
+    to a prompt cache, when the server reports them. Like the reasoning tokens, they are part of
+    ``prompt_tokens``, which is always the whole input. ``cache_write_1h_tokens`` says how many
+    of the written tokens went to a one-hour cache (the rest went to a five-minute cache), when
+    the server says. ``batch_id`` and ``custom_id`` name the batch and the request within it
+    when the answer came through a batch (see :func:`~reliacode.code_in_batches`).
     """
 
     text: str
@@ -135,6 +157,11 @@ class Response(_Record):
     attempts: int = Field(default=1, ge=1)
     created_at: datetime
     reasoning_tokens: NonNegativeInt | None = None
+    cache_write_tokens: NonNegativeInt | None = None
+    cache_write_1h_tokens: NonNegativeInt | None = None
+    cache_read_tokens: NonNegativeInt | None = None
+    batch_id: str | None = None
+    custom_id: str | None = None
 
     @field_validator("created_at")
     @classmethod
@@ -427,9 +454,9 @@ class OpenAICompatibleBackend:
             False}}``. The values must be JSON values. Fields the backend sets itself
             (``model``, ``messages``, ``stream``, ``temperature``, ``seed``, ``max_tokens``
             and ``response_format``) are refused, and so is any field, at any depth, whose name
-            looks like a credential (it contains key, token, secret, password or
-            authorization; a count such as ``max_completion_tokens`` is not one). Never put a
-            key or a coded text here: the fields are kept in every record.
+            looks like a credential (it contains key, token, secret, password, auth,
+            credential, bearer or cookie; a count such as ``max_completion_tokens`` is not one).
+            Never put a key or a coded text here: the fields are kept in every record.
     """
 
     def __init__(
@@ -777,6 +804,8 @@ class OpenAICompatibleBackend:
         usage = usage if isinstance(usage, dict) else {}
         details = usage.get("completion_tokens_details")
         details = details if isinstance(details, dict) else {}
+        prompt_details = usage.get("prompt_tokens_details")
+        prompt_details = prompt_details if isinstance(prompt_details, dict) else {}
         return Response(
             text=text,
             model=_text_or_none(data.get("model")),
@@ -792,6 +821,7 @@ class OpenAICompatibleBackend:
             attempts=attempts,
             created_at=utc_now(),
             reasoning_tokens=_count(details.get("reasoning_tokens")),
+            cache_read_tokens=_count(prompt_details.get("cached_tokens")),
         )
 
     def _unexpected(self, what: str, answer: httpx.Response, key: str | None) -> BackendError:

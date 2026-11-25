@@ -2,6 +2,7 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
+from reliacode.anthropic_backend import AnthropicBackend
 from reliacode.backends import (
     Backend,
     BackendError,
@@ -10,6 +11,7 @@ from reliacode.backends import (
     RequestParameters,
     Response,
 )
+from reliacode.batches import BatchFailure, BatchInfo, BatchRun, code_in_batches
 from reliacode.codebook import (
     Category,
     Codebook,
@@ -48,8 +50,12 @@ except PackageNotFoundError:  # pragma: no cover - only when running from an uni
     __version__ = "0.0.0+unknown"
 
 __all__ = [
+    "AnthropicBackend",
     "Backend",
     "BackendError",
+    "BatchFailure",
+    "BatchInfo",
+    "BatchRun",
     "Budget",
     "BudgetError",
     "Category",
@@ -77,6 +83,7 @@ __all__ = [
     "VariableReliability",
     "__version__",
     "code",
+    "code_in_batches",
     "codebook_reliability",
     "load_codebook",
     "parse_codebook",

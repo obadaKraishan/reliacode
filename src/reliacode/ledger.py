@@ -38,9 +38,12 @@ from reliacode.backends import (
 
 #: Version of the ledger's line format. Every line records the version it was written with,
 #: and a line from a newer version is refused when the file is read. Version 2 added
-#: ``reasoning_tokens`` and the extra request fields (``parameters.extra_body``); lines written
-#: with version 1 are still read, with no reasoning tokens and no extra fields.
-LEDGER_VERSION = 2
+#: ``reasoning_tokens`` and the extra request fields (``parameters.extra_body``). Version 3
+#: added the cache counts (``cache_write_tokens``, ``cache_write_1h_tokens``,
+#: ``cache_read_tokens``), the batch ids (``batch_id``, ``custom_id``) and four request settings
+#: (``parameters.api_version``, ``thinking``, ``effort`` and ``cache``). Lines written with
+#: versions 1 and 2 are still read, with the fields they lack left empty.
+LEDGER_VERSION = 3
 
 #: What came of a call. "answered": the answer could be used. "asked_again": it could not, and
 #: the model was asked again. "missing": it could not, and no try was left. "failed": no answer
@@ -79,6 +82,12 @@ class LedgerEntry(_Record):
     call got no answer, so it has no counts, no returned model and no latency, and
     ``error_reason`` says what kind of problem stopped it.
 
+    ``cache_read_tokens`` and ``cache_write_tokens`` are the input tokens read from and written
+    to a prompt cache, and ``cache_write_1h_tokens`` the written ones that went to a one-hour
+    cache, as the server reported them. They are part of ``prompt_tokens``. ``batch_id`` and
+    ``custom_id`` name the batch and the request within it, for a call sent in a batch; such a
+    call has no latency of its own, so its ``latency_seconds`` is ``None``.
+
     The line never holds the text that was coded, the model's answer or an API key. The text is
     represented only by ``text_hash`` and ``text_length`` (in characters).
     """
@@ -106,6 +115,11 @@ class LedgerEntry(_Record):
     text_hash: str = Field(pattern=_HASH)
     text_length: NonNegativeInt
     reasoning_tokens: NonNegativeInt | None = None
+    cache_write_tokens: NonNegativeInt | None = None
+    cache_write_1h_tokens: NonNegativeInt | None = None
+    cache_read_tokens: NonNegativeInt | None = None
+    batch_id: str | None = None
+    custom_id: str | None = None
 
     @field_validator("at")
     @classmethod
@@ -126,10 +140,7 @@ class LedgerEntry(_Record):
 
     @model_validator(mode="after")
     def _consistent(self) -> "LedgerEntry":
-        counted = any(
-            count is not None
-            for count in (self.prompt_tokens, self.completion_tokens, self.reasoning_tokens)
-        )
+        counted = any(count is not None for count in _counts(self))
         if counted and self.token_source is None:
             raise ValueError('token counts need token_source="server", where they came from')
         if not counted and self.token_source is not None:
@@ -170,14 +181,8 @@ class LedgerEntry(_Record):
 
         ``at`` is the time of the call; the answer's own time is used when it is not given.
         """
-        counted = any(
-            count is not None
-            for count in (
-                response.prompt_tokens,
-                response.completion_tokens,
-                response.reasoning_tokens,
-            )
-        )
+        counted = any(count is not None for count in _counts(response))
+        batched = response.batch_id is not None
         return cls(
             at=at if at is not None else response.created_at,
             outcome=outcome,
@@ -189,7 +194,8 @@ class LedgerEntry(_Record):
             prompt_tokens=response.prompt_tokens,
             completion_tokens=response.completion_tokens,
             token_source="server" if counted else None,
-            latency_seconds=response.latency_seconds,
+            # A request in a batch has no latency of its own: the batch's times are its waits.
+            latency_seconds=None if batched else response.latency_seconds,
             finish_reason=response.finish_reason,
             response_id=response.response_id,
             request_id=response.request_id,
@@ -199,6 +205,11 @@ class LedgerEntry(_Record):
             text_hash=hash_text(text),
             text_length=len(text),
             reasoning_tokens=response.reasoning_tokens,
+            cache_write_tokens=response.cache_write_tokens,
+            cache_write_1h_tokens=response.cache_write_1h_tokens,
+            cache_read_tokens=response.cache_read_tokens,
+            batch_id=response.batch_id,
+            custom_id=response.custom_id,
         )
 
     @classmethod
@@ -213,6 +224,8 @@ class LedgerEntry(_Record):
         model: str | None = None,
         ask: int = 1,
         at: datetime | None = None,
+        batch_id: str | None = None,
+        custom_id: str | None = None,
     ) -> "LedgerEntry":
         """The line for a call that got no answer. ``text`` is hashed and measured, not kept.
 
@@ -220,6 +233,7 @@ class LedgerEntry(_Record):
         HTTP status, or else the name of the exception. The error's message is never kept,
         because a server's message can quote the request. ``model`` is the model that was asked
         for, when it is known. ``at`` is the time of the call; now is used when it is not given.
+        ``batch_id`` and ``custom_id`` name the request, for a request in a batch.
         """
         if isinstance(error, BackendError):
             reason, status = error.reason, error.status
@@ -237,7 +251,24 @@ class LedgerEntry(_Record):
             prompt_hash=prompt_hash,
             text_hash=hash_text(text),
             text_length=len(text),
+            batch_id=batch_id,
+            custom_id=custom_id,
         )
+
+
+def _counts(record: "LedgerEntry | Response") -> tuple[int | None, ...]:
+    """Every token count a record can hold."""
+    return (
+        record.prompt_tokens,
+        record.completion_tokens,
+        record.reasoning_tokens,
+        record.cache_write_tokens,
+        record.cache_write_1h_tokens,
+        record.cache_read_tokens,
+    )
+
+
+_PRICE = {"ge": 0, "allow_inf_nan": False}
 
 
 class ModelPrice(_Record):
@@ -245,10 +276,91 @@ class ModelPrice(_Record):
 
     Write 0 for both for a local model that costs nothing to run, so that its calls cost 0 and
     their tokens are still counted.
+
+    A service with a prompt cache or a batch interface can give more prices:
+
+    Args:
+        cache_write_5m_per_million, cache_write_1h_per_million: the price of a million input
+            tokens written to a cache that lasts five minutes or one hour. A call that wrote to
+            a cache whose price is not given has no cost, since a write costs more than plain
+            input.
+        cache_read_per_million: the price of a million input tokens read from a cache. Without
+            it, tokens read from a cache are priced as plain input, as before.
+        batch_discount: the share taken off every price for a request sent in a batch, such as
+            0.5 for half price. Without it, a request in a batch costs what it would cost alone.
+        long_prompt_above, long_prompt_price: for a model priced by prompt length, the prompt
+            length in tokens (cache reads and writes included) above which a call pays the
+            prices in ``long_prompt_price`` instead, for all of its tokens.
     """
 
-    input_per_million: float = Field(ge=0, allow_inf_nan=False)
-    output_per_million: float = Field(ge=0, allow_inf_nan=False)
+    input_per_million: float = Field(**_PRICE)
+    output_per_million: float = Field(**_PRICE)
+    cache_write_5m_per_million: float | None = Field(default=None, **_PRICE)
+    cache_write_1h_per_million: float | None = Field(default=None, **_PRICE)
+    cache_read_per_million: float | None = Field(default=None, **_PRICE)
+    batch_discount: float | None = Field(default=None, ge=0, lt=1, allow_inf_nan=False)
+    long_prompt_above: int | None = Field(default=None, gt=0)
+    long_prompt_price: "ModelPrice | None" = None
+
+    @model_validator(mode="after")
+    def _long_prompt(self) -> "ModelPrice":
+        if (self.long_prompt_above is None) != (self.long_prompt_price is None):
+            raise ValueError(
+                "give long_prompt_above and long_prompt_price together: the prompt length above "
+                "which the long-prompt prices apply, and those prices"
+            )
+        inner = self.long_prompt_price
+        if inner is not None and inner.long_prompt_price is not None:
+            raise ValueError("long_prompt_price cannot have long-prompt prices of its own")
+        return self
+
+    def cost(self, entry: "LedgerEntry") -> float | None:
+        """What the call in ``entry`` cost at these prices, or ``None`` when it cannot be known.
+
+        The input is priced in parts: the plain input, the tokens written to a cache (at the
+        price for the cache's time to live) and the tokens read from a cache. The output is
+        priced as output. A call in a batch gets the batch discount.
+        """
+        prompt, completion = entry.prompt_tokens, entry.completion_tokens
+        if prompt is None or completion is None:
+            return None
+        price = self
+        if self.long_prompt_above is not None and prompt > self.long_prompt_above:
+            assert self.long_prompt_price is not None  # given together, as checked above
+            price = self.long_prompt_price
+        parameters = entry.parameters
+        cache_ttl = parameters.cache if parameters is not None else None
+        written, read = entry.cache_write_tokens, entry.cache_read_tokens
+        if cache_ttl is not None and (written is None or read is None):
+            return None  # caching was asked for, and the server did not say what it did
+        written, read = written or 0, read or 0
+        plain = prompt - written - read
+        if plain < 0:
+            return None  # counts that do not add up are not priced
+        total = plain * price.input_per_million + completion * price.output_per_million
+        if read:
+            read_price = price.cache_read_per_million
+            total += read * (price.input_per_million if read_price is None else read_price)
+        if written:
+            one_hour = entry.cache_write_1h_tokens
+            if one_hour is None:
+                if cache_ttl not in ("5m", "1h"):
+                    return None  # which cache the tokens went to is not known
+                one_hour = written if cache_ttl == "1h" else 0
+            five_minutes = written - one_hour
+            if five_minutes < 0:
+                return None
+            for tokens, write_price in (
+                (five_minutes, price.cache_write_5m_per_million),
+                (one_hour, price.cache_write_1h_per_million),
+            ):
+                if tokens and write_price is None:
+                    return None
+                total += tokens * (write_price or 0)
+        cost = total / 1_000_000
+        if entry.batch_id is not None and price.batch_discount is not None:
+            cost *= 1 - price.batch_discount
+        return cost
 
 
 class PriceTable(_Record):
@@ -301,18 +413,13 @@ class PriceTable(_Record):
         return self.price(entry.model_requested) or self.price(entry.model_returned)
 
     def cost(self, entry: LedgerEntry) -> float | None:
-        """What a call cost, in the table's currency.
+        """What a call cost, in the table's currency (see :meth:`ModelPrice.cost`).
 
         It is ``None``, never zero, when the server did not report both token counts or the
         table has no price for the model. A failed call has no counts, so it has no cost.
         """
         price = self.price_of(entry)
-        if price is None or entry.prompt_tokens is None or entry.completion_tokens is None:
-            return None
-        return (
-            entry.prompt_tokens * price.input_per_million
-            + entry.completion_tokens * price.output_per_million
-        ) / 1_000_000
+        return None if price is None else price.cost(entry)
 
 
 class Budget(_Record):
@@ -549,6 +656,14 @@ class Ledger:
         self._cost = 0.0
         self._largest_tokens = 0
         self._largest_cost = 0.0
+        #: The largest input and output of a counted call, for the estimate before a batch.
+        self._largest_prompt: int | None = None
+        self._largest_completion = 0
+        #: What batches already sent may still use: kept back from the budget until their
+        #: results are recorded (see reliacode.code_in_batches).
+        self._reserved_calls = 0
+        self._reserved_tokens = 0
+        self._reserved_cost = 0.0
         #: The first answered call without both token counts, and the first without a price.
         self._without_tokens: tuple[int, LedgerEntry] | None = None
         self._without_price: tuple[int, LedgerEntry] | None = None
@@ -598,7 +713,9 @@ class Ledger:
         budget = self.budget
         if budget is None:
             return
-        if budget.call_limit is not None and self._calls + 1 > budget.call_limit:
+        if budget.call_limit is not None and self._calls + self._reserved_calls + 1 > (
+            budget.call_limit
+        ):
             raise BudgetError(
                 f"The budget allows {budget.call_limit:,} calls, and the ledger {self.path} "
                 f"already has {self._calls:,}, so reliacode stopped before the next call. To "
@@ -609,7 +726,7 @@ class Ledger:
             )
         if budget.token_limit is not None:
             self._check_counted("token limit", f"{budget.token_limit:,}", "tokens")
-            if self._tokens + self._largest_tokens > budget.token_limit:
+            if self._tokens + self._reserved_tokens + self._largest_tokens > budget.token_limit:
                 raise BudgetError(
                     f"The next call could pass the token limit of {budget.token_limit:,}, so "
                     f"reliacode stopped before it. The calls in the ledger {self.path} have used "
@@ -625,7 +742,7 @@ class Ledger:
             if self._without_price is not None:
                 number, entry = self._without_price
                 raise self._no_price(entry.model, f" (call {number:,} in the ledger {self.path})")
-            if self._cost + self._largest_cost > budget.cost_limit:
+            if self._cost + self._reserved_cost + self._largest_cost > budget.cost_limit:
                 raise BudgetError(
                     f"The next call could pass the cost limit of {limit}, so reliacode stopped "
                     f"before it. The calls in the ledger {self.path} have cost "
@@ -636,6 +753,115 @@ class Ledger:
                     allowed=budget.cost_limit,
                     used=self._cost,
                 )
+
+    def _worst_case(self, model: str | None, cache: str | None) -> tuple[int | None, float | None]:
+        """The tokens and the cost of one request in a batch, at the worst case: as large as the
+        largest call in the ledger so far, with all of its input written to the cache (or
+        priced as plain input without caching) and none read, at the batch price. Either is
+        ``None`` when it cannot be known: no call has token counts yet, or a price is missing.
+        """
+        if self._largest_prompt is None:
+            return None, None
+        prompt, completion = self._largest_prompt, self._largest_completion
+        price = self.prices.price(model) if self.prices is not None else None
+        cost = None
+        if price is not None:
+            if price.long_prompt_above is not None and prompt > price.long_prompt_above:
+                assert price.long_prompt_price is not None
+                price = price.long_prompt_price
+            input_price = {
+                None: price.input_per_million,
+                "5m": price.cache_write_5m_per_million,
+                "1h": price.cache_write_1h_per_million,
+            }.get(cache)
+            if input_price is not None:
+                cost = (prompt * input_price + completion * price.output_per_million) / 1_000_000
+                if price.batch_discount is not None:
+                    cost *= 1 - price.batch_discount
+        return prompt + completion, cost
+
+    def _reserve(
+        self, calls: int, tokens: int | None, cost: float | None, *, refuse: bool = True
+    ) -> None:
+        """Keep back what a batch about to be sent may use, after checking that the budget
+        allows it on top of the calls recorded and the batches already sent.
+
+        ``tokens`` and ``cost`` are the batch's worst case, or ``None`` when it is not known.
+        With ``refuse=False`` nothing is checked: for batches that were already sent.
+
+        Raises:
+            BudgetError: the batch could pass a limit, or a limit cannot be kept.
+        """
+        budget = self.budget
+        if budget is not None and refuse:
+            sent = self._reserved_calls
+            if budget.call_limit is not None and self._calls + sent + calls > budget.call_limit:
+                raise BudgetError(
+                    f"The budget allows {budget.call_limit:,} calls. The ledger {self.path} has "
+                    f"{self._calls:,}, batches already sent may make {sent:,} more, and this "
+                    f"batch holds {calls:,}, so reliacode did not send it. To send it, raise "
+                    "call_limit in the Budget.",
+                    limit="calls",
+                    allowed=budget.call_limit,
+                    used=self._calls,
+                )
+            if budget.token_limit is not None:
+                self._check_counted("token limit", f"{budget.token_limit:,}", "tokens")
+                if tokens is None:
+                    raise self._no_size("token limit", f"{budget.token_limit:,}", "tokens")
+                if self._tokens + self._reserved_tokens + tokens > budget.token_limit:
+                    raise BudgetError(
+                        f"This batch could pass the token limit of {budget.token_limit:,}, so "
+                        f"reliacode did not send it. Its worst case is {tokens:,} tokens; the "
+                        f"calls in the ledger {self.path} have used {self._tokens:,}, and "
+                        f"batches already sent may use {self._reserved_tokens:,} more. To send "
+                        "it, raise token_limit in the Budget.",
+                        limit="tokens",
+                        allowed=budget.token_limit,
+                        used=self._tokens,
+                    )
+            if budget.cost_limit is not None:
+                limit = self._amount(budget.cost_limit)
+                self._check_counted("cost limit", limit, "cost")
+                if self._without_price is not None:
+                    number, entry = self._without_price
+                    where = f" (call {number:,} in the ledger {self.path})"
+                    raise self._no_price(entry.model, where)
+                if cost is None:
+                    raise self._no_size("cost limit", limit, "cost")
+                if self._cost + self._reserved_cost + cost > budget.cost_limit:
+                    raise BudgetError(
+                        f"This batch could pass the cost limit of {limit}, so reliacode did not "
+                        f"send it. Its worst case is {self._amount(cost)}; the calls in the "
+                        f"ledger {self.path} have cost {self._amount(self._cost)}, and batches "
+                        f"already sent may cost {self._amount(self._reserved_cost)} more. To "
+                        "send it, raise cost_limit in the Budget.",
+                        limit="cost",
+                        allowed=budget.cost_limit,
+                        used=self._cost,
+                    )
+        self._reserved_calls += calls
+        self._reserved_tokens += tokens or 0
+        self._reserved_cost += cost or 0.0
+
+    def _release(self, calls: int, tokens: int | None, cost: float | None) -> None:
+        """Give back what :meth:`_reserve` kept for requests whose results are now recorded."""
+        self._reserved_calls = max(self._reserved_calls - calls, 0)
+        self._reserved_tokens = max(self._reserved_tokens - (tokens or 0), 0)
+        self._reserved_cost = max(self._reserved_cost - (cost or 0.0), 0.0)
+
+    def _no_size(self, name: str, limit: str, kind: Literal["cost", "tokens"]) -> BudgetError:
+        what = "the price of a cache write or of the model" if kind == "cost" else "its size"
+        return BudgetError(
+            f"The {name} of {limit} cannot be kept for a batch: the worst case of a request is "
+            f"not known, because no call in the ledger {self.path} has token counts yet, or "
+            f"{what} is missing from the price table. Code a few texts with code() first, so "
+            "the ledger knows how large a call is, add the missing price, or use a call limit "
+            "instead, as in Budget(call_limit=1000).",
+            limit=kind,
+            allowed=self._limit(kind),
+            used=self._tokens if kind == "tokens" else self._cost,
+        )
 
     def check_price(self, model: str | None) -> None:
         """Refuse a cost limit at the start of a run when the model to be used has no price.
@@ -700,6 +926,8 @@ class Ledger:
         tokens = entry.prompt_tokens + entry.completion_tokens
         self._tokens += tokens
         self._largest_tokens = max(self._largest_tokens, tokens)
+        self._largest_prompt = max(self._largest_prompt or 0, entry.prompt_tokens)
+        self._largest_completion = max(self._largest_completion, entry.completion_tokens)
         if self.prices is None:
             return
         cost = self.prices.cost(entry)
@@ -756,6 +984,9 @@ class Totals(_Record):
         latency_seconds: the time spent waiting for answers, added up.
         calls_per_text, input_tokens_per_text, output_tokens_per_text, cost_per_text: averages
             over the texts.
+        cache_write_tokens, cache_read_tokens: the input tokens written to and read from a
+            prompt cache, added up over the calls whose server reported them, or ``None`` when
+            none did. They are part of ``input_tokens``.
     """
 
     calls: int
@@ -775,6 +1006,8 @@ class Totals(_Record):
     input_tokens_per_text: float | None
     output_tokens_per_text: float | None
     cost_per_text: float | None
+    cache_write_tokens: int | None = None
+    cache_read_tokens: int | None = None
 
 
 class LedgerSummary(_Record):
@@ -880,6 +1113,8 @@ def _totals(entries: list[LedgerEntry], prices: PriceTable | None) -> Totals:
     cost = sum(known_costs) if known_costs else None
     all_counted = len(counted) == len(entries)
     all_costed = len(known_costs) == len(entries)
+    writes = [e.cache_write_tokens for e in counted if e.cache_write_tokens is not None]
+    reads = [e.cache_read_tokens for e in counted if e.cache_read_tokens is not None]
     return Totals(
         calls=len(entries),
         answered=outcomes.count("answered"),
@@ -898,6 +1133,8 @@ def _totals(entries: list[LedgerEntry], prices: PriceTable | None) -> Totals:
         input_tokens_per_text=_per(input_tokens, texts) if all_counted else None,
         output_tokens_per_text=_per(output_tokens, texts) if all_counted else None,
         cost_per_text=_per(cost, texts) if all_costed else None,
+        cache_write_tokens=sum(writes) if writes else None,
+        cache_read_tokens=sum(reads) if reads else None,
     )
 
 

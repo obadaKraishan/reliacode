@@ -18,7 +18,10 @@ from helpers import completion
 from reliacode import FakeBackend, Ledger, code, load_codebook
 
 ROOT = Path(__file__).parent.parent
-DOC = (ROOT / "docs" / "backends.md").read_text(encoding="utf-8")
+# The section on Anthropic's own API has its own test (tests/test_docs_anthropic.py).
+DOC = (
+    (ROOT / "docs" / "backends.md").read_text(encoding="utf-8").split("\n## Anthropic's own API")[0]
+)
 BLOCKS = re.findall(r"```(\w+)\n(.*?)```", DOC, flags=re.DOTALL)
 
 

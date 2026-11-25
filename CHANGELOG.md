@@ -154,8 +154,51 @@ All notable changes to this project are recorded here. The format follows
   - The default recipe is unchanged. Its prompts, prompt hashes and HTTP requests are pinned to
     what they were before this change, byte for byte, by `tests/test_default_prompts.py`.
   - `docs/backends.md` has a section with an example from start to finish.
+- A backend for Anthropic's own Messages API, with prompt caching and Message Batches, and no new
+  dependency:
+  - `reliacode.AnthropicBackend(model, ...)` follows the same backend interface, so `code()` works
+    with it unchanged, with both recipes. The key is read by its variable's name at call time and
+    sent only in the `Authorization` header. The `anthropic-version` header is pinned to
+    `2026-10-21` and recorded. No temperature is sent unless given. Overload, rate limits and
+    server errors are tried again, honoring `retry-after` and `x-should-retry`.
+  - `cache="5m"` or `"1h"` marks the system prompt, the part every call shares, for caching, never
+    the text being coded. Caching changes no prompt text and no prompt hash. A warning is logged
+    when the API shows that nothing was cached.
+  - `thinking`, `effort` and `structured_output` are sent as given (`thinking`,
+    `output_config.effort`, `output_config.format`) and recorded. Thinking tokens are counted
+    from `output_tokens_details.thinking_tokens`. No thinking text reaches a result or a line.
+  - `RequestParameters` gains `api_version`, `thinking`, `effort` and `cache`, and `Response`
+    gains `cache_write_tokens`, `cache_write_1h_tokens`, `cache_read_tokens`, `batch_id` and
+    `custom_id`, all at the end and `None` by default. `prompt_tokens` stays the whole input.
+  - `reliacode.code_in_batches(...)` codes like `code()`, with the same records, through the
+    Message Batches API, within its documented limits. Second asks go as a second round, and
+    results are read by custom id. It returns a `reliacode.BatchRun` with the run, the batches
+    (`BatchInfo`) and the requests that got no answer (`BatchFailure`).
+  - A state file holds every batch id and the custom ids recorded, so a restart sends only what
+    was never sent and adds no ledger line twice. Expired or failed requests are sent again only
+    with `resubmit_failed=True`. After a lost answer to a batch's creation, nothing more is sent
+    until `adopt_batch` or `resubmit_unconfirmed` says what happened.
+  - Before a round of batches is sent, its worst case is printed and kept back from the budget,
+    and given back as the results are recorded.
+  - `ModelPrice` gains `cache_write_5m_per_million`, `cache_write_1h_per_million`,
+    `cache_read_per_million`, `batch_discount`, `long_prompt_above` and `long_prompt_price`, so
+    `summarize()` and the budget stay exact. Prices still come only from the caller.
+  - The summary's `Totals` gains `cache_write_tokens` and `cache_read_tokens`, and its CSV the
+    two columns at the end.
+  - `OpenAICompatibleBackend` reads `prompt_tokens_details.cached_tokens` into
+    `cache_read_tokens`. Its requests are unchanged, and without a cache-read price its costs are
+    unchanged too.
+  - `docs/backends.md` has a section with an example from start to finish for each path, and
+    Anthropic's documentation quoted as read on 2026-11-25.
 
 ### Changed
+- **The ledger line format is now version 3** (`LEDGER_VERSION`): lines gain the cache counts,
+  the batch ids and the four request settings, all at the end. Lines written with versions 1 and
+  2 are still read, and a file can hold all three. A request in a batch has no latency of its
+  own, so its line's `latency_seconds` is `None`.
+- The credential-name guard on extra request fields now also refuses names containing auth,
+  credential, bearer or cookie (so `author` too). A ledger line holding such a field name, which
+  reliacode never wrote, can no longer be read.
 - **The ledger line format is now version 2** (`LEDGER_VERSION`): lines gain `reasoning_tokens`
   and `parameters.extra_body`. Lines written with version 1 are still read, and a file can hold
   both. An older reliacode refuses version 2 lines with a message that says to update it.

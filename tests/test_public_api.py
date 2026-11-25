@@ -59,6 +59,11 @@ BACKEND_NAMES = [
     "Response",
     "code",
     "Rule",
+    "AnthropicBackend",
+    "BatchFailure",
+    "BatchInfo",
+    "BatchRun",
+    "code_in_batches",
 ]
 
 LEDGER_NAMES = [
@@ -206,6 +211,62 @@ def test_the_backends_keep_their_parameters() -> None:
     ]
 
 
+def test_the_anthropic_backend_keeps_its_parameters() -> None:
+    from reliacode import AnthropicBackend
+
+    assert parameters(AnthropicBackend.__init__) == [
+        ("self", "POSITIONAL_OR_KEYWORD", EMPTY),
+        ("model", "POSITIONAL_OR_KEYWORD", EMPTY),
+        ("api_key_env", "KEYWORD_ONLY", "ANTHROPIC_API_KEY"),
+        ("max_tokens", "KEYWORD_ONLY", 4096),
+        ("cache", "KEYWORD_ONLY", None),
+        ("thinking", "KEYWORD_ONLY", None),
+        ("effort", "KEYWORD_ONLY", None),
+        ("structured_output", "KEYWORD_ONLY", True),
+        ("temperature", "KEYWORD_ONLY", None),
+        ("extra_body", "KEYWORD_ONLY", None),
+        ("base_url", "KEYWORD_ONLY", "https://api.anthropic.com"),
+        ("api_version", "KEYWORD_ONLY", "2026-10-21"),
+        ("timeout", "KEYWORD_ONLY", 600.0),
+        ("max_retries", "KEYWORD_ONLY", 3),
+        ("transport", "KEYWORD_ONLY", None),
+        ("sleep", "KEYWORD_ONLY", time.sleep),
+        ("clock", "KEYWORD_ONLY", time.perf_counter),
+    ]
+
+
+def test_code_in_batches_keeps_its_parameters_and_records() -> None:
+    from reliacode import BatchFailure, BatchInfo, BatchRun, code_in_batches
+
+    assert parameters(code_in_batches) == [
+        ("codebook", "POSITIONAL_OR_KEYWORD", EMPTY),
+        ("texts", "POSITIONAL_OR_KEYWORD", EMPTY),
+        ("backend", "KEYWORD_ONLY", EMPTY),
+        ("state", "KEYWORD_ONLY", EMPTY),
+        ("variables", "KEYWORD_ONLY", None),
+        ("attempts", "KEYWORD_ONLY", 2),
+        ("ledger", "KEYWORD_ONLY", None),
+        ("recipe", "KEYWORD_ONLY", "per_variable"),
+        ("rules", "KEYWORD_ONLY", None),
+        ("poll_every", "KEYWORD_ONLY", 60.0),
+        ("resubmit_failed", "KEYWORD_ONLY", False),
+        ("adopt_batch", "KEYWORD_ONLY", None),
+        ("resubmit_unconfirmed", "KEYWORD_ONLY", False),
+        ("report", "KEYWORD_ONLY", print),
+    ]
+    assert list(BatchRun.model_fields) == ["run", "batches", "failed", "submitted", "state"]
+    assert list(BatchFailure.model_fields) == [
+        "unit",
+        "variable",
+        "ask",
+        "batch_id",
+        "custom_id",
+        "reason",
+        "error_type",
+    ]
+    assert list(BatchInfo.model_fields)[:4] == ["batch_id", "ask", "requests", "submitted_at"]
+
+
 def test_the_backend_and_coding_records_keep_their_fields() -> None:
     assert list(Response.model_fields) == [
         "text",
@@ -222,6 +283,12 @@ def test_the_backend_and_coding_records_keep_their_fields() -> None:
         "attempts",
         "created_at",
         "reasoning_tokens",
+        # Added for the native Anthropic backend, at the end.
+        "cache_write_tokens",
+        "cache_write_1h_tokens",
+        "cache_read_tokens",
+        "batch_id",
+        "custom_id",
     ]
     assert list(RequestParameters.model_fields) == [
         "endpoint",
@@ -231,6 +298,11 @@ def test_the_backend_and_coding_records_keep_their_fields() -> None:
         "max_tokens",
         "structured_output",
         "extra_body",
+        # Added for the native Anthropic backend, at the end.
+        "api_version",
+        "thinking",
+        "effort",
+        "cache",
     ]
     assert list(CodingResult.model_fields) == [
         "unit",

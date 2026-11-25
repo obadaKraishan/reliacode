@@ -108,6 +108,32 @@ def completion(text: str = '{"code": "positive"}', **fields: object) -> dict[str
     return body
 
 
+def anthropic_message(
+    text: str = '{"code": "positive"}', *, usage: dict[str, object] | None = None, **fields: object
+) -> dict[str, object]:
+    """A message as Anthropic's Messages API returns it, with invented ids and counts. ``usage``
+    replaces the counts, and ``fields`` replace the rest."""
+    body: dict[str, object] = {
+        "id": "msg_test_1",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-test-model",
+        "content": [{"type": "text", "text": text}],
+        "stop_reason": "end_turn",
+        "stop_sequence": None,
+        "usage": usage
+        if usage is not None
+        else {
+            "input_tokens": 50,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "output_tokens": 7,
+        },
+    }
+    body.update(fields)
+    return body
+
+
 class FakeServer:
     """A mock HTTP server for httpx: answers from a script and keeps every request it gets.
 
@@ -210,3 +236,111 @@ def one_variable(codes: list[str], *, ordinal: bool = False, name: str = "v") ->
         if ordinal:
             lines.append(f"        level: {level}")
     return "\n".join(lines) + "\n"
+
+
+class FakeBatchAPI:
+    """A mock of Anthropic's Message Batches API (and of its Messages API), for httpx.
+
+    ``answer(custom_id, params)`` gives each request's result: a text (an answer that
+    succeeded), or a result dict such as ``{"type": "expired"}``. A batch is "in_progress" for
+    ``polls`` looks, then "ended". Results come back in the reverse order of the requests, to
+    show they are read by custom id. ``create_failures`` are raised or returned, in order, by
+    the next batch creations. Every request is kept in ``requests``; no socket is opened.
+    """
+
+    STARTED = "2026-11-25T10:00:00.123456Z"
+    ENDED = "2026-11-25T10:04:30.654321Z"
+
+    def __init__(
+        self, answer, *, polls: int = 1, usage: dict | None = None, prefix: str = "msgbatch_test"
+    ) -> None:
+        self.answer = answer
+        self.polls = polls
+        self.prefix = prefix
+        self.usage = usage
+        self.batches: dict[str, dict] = {}
+        self.requests: list[httpx.Request] = []
+        self.create_failures: list[object] = []
+        self.archived: set[str] = set()
+        self.results_gone: set[str] = set()
+
+    @property
+    def transport(self) -> httpx.MockTransport:
+        return httpx.MockTransport(self)
+
+    def created(self) -> list[dict]:
+        """The bodies of the batch creations that reached the API, in order."""
+        return [
+            json.loads(r.content)
+            for r in self.requests
+            if r.method == "POST" and r.url.path == "/v1/messages/batches"
+        ]
+
+    def add(self, batch_id: str, requests: list[dict]) -> None:
+        """A batch made outside the test's calls, as if the API had created it. Its results
+        are fixed when it is made, as a real batch's are."""
+        results = [self._result(request) for request in requests]
+        self.batches[batch_id] = {"requests": requests, "results": results, "looks": 0}
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        request.read()
+        self.requests.append(request)
+        path = request.url.path
+        if request.method == "POST" and path == "/v1/messages":
+            body = json.loads(request.content)
+            text = self.answer("sync", body)
+            return httpx.Response(200, json=anthropic_message(text, usage=self.usage))
+        if request.method == "POST" and path == "/v1/messages/batches":
+            if self.create_failures:
+                failure = self.create_failures.pop(0)
+                if isinstance(failure, BaseException):
+                    raise failure
+                return failure
+            batch_id = f"{self.prefix}{len(self.batches) + 1}"
+            self.add(batch_id, json.loads(request.content)["requests"])
+            return httpx.Response(200, json=self._state(batch_id))
+        parts = path.split("/")
+        batch_id = parts[4]
+        if batch_id not in self.batches:
+            return httpx.Response(404, json={"type": "error", "error": {"message": "no batch"}})
+        if len(parts) == 5:
+            self.batches[batch_id]["looks"] += 1
+            return httpx.Response(200, json=self._state(batch_id))
+        if batch_id in self.results_gone:
+            return httpx.Response(404, json={"type": "error", "error": {"message": "gone"}})
+        lines = [json.dumps(result) for result in reversed(self.batches[batch_id]["results"])]
+        return httpx.Response(200, content=("\n".join(lines) + "\n").encode())
+
+    def _result(self, request: dict) -> dict:
+        given = self.answer(request["custom_id"], request["params"])
+        if isinstance(given, dict):
+            return {"custom_id": request["custom_id"], "result": given}
+        message = anthropic_message(given, usage=self.usage, id=f"msg_{request['custom_id']}")
+        return {
+            "custom_id": request["custom_id"],
+            "result": {"type": "succeeded", "message": message},
+        }
+
+    def _state(self, batch_id: str) -> dict:
+        batch = self.batches[batch_id]
+        ended = batch["looks"] > self.polls
+        counts = {"processing": 0, "succeeded": 0, "errored": 0, "canceled": 0, "expired": 0}
+        if ended:
+            for result in batch["results"]:
+                given = result["result"]
+                kind = given.get("type") if isinstance(given, dict) else None
+                counts[kind if kind in counts else "errored"] += 1
+        else:
+            counts["processing"] = len(batch["requests"])
+        return {
+            "id": batch_id,
+            "type": "message_batch",
+            "processing_status": "ended" if ended else "in_progress",
+            "request_counts": counts,
+            "created_at": self.STARTED,
+            "ended_at": self.ENDED if ended else None,
+            "expires_at": "2026-11-26T10:00:00Z",
+            "archived_at": "2026-12-24T10:00:00Z" if batch_id in self.archived else None,
+            "cancel_initiated_at": None,
+            "results_url": None,
+        }
