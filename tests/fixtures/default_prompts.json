@@ -1,0 +1,1014 @@
+{
+ "about": "The prompts of the default recipe (one call per variable), recorded before the one-call-per-unit recipe was added. Never regenerate this file.",
+ "made_with": {
+  "commit": "60410f5e66993eab5de986f812dc679e88ce5c22",
+  "python": "3.12.12"
+ },
+ "text": "The new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one.",
+ "first_answer": "I think it is positive.",
+ "unusable_answer": "{\"code\": \"Not-A-Code\"}",
+ "constants": {
+  "PROMPT_VERSION": 1,
+  "INSTRUCTION": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.",
+  "USER_TEMPLATE": "Text to code:\n\n{text}",
+  "RETRY_TEMPLATE": "That answer cannot be used: {problem} Answer again with only a JSON object of the form {{\"code\": \"...\"}}, where the code is one of: {codes}."
+ },
+ "codebooks": [
+  {
+   "name": "examples/codebooks/incivility.yaml",
+   "file": "examples/codebooks/incivility.yaml",
+   "content_hash": "sha256:0a56109f1da29f0242fae1edf057785de91e1f0d2474227e977764aaa2b234dd",
+   "prompts": [
+    {
+     "variable": "incivility_form",
+     "system": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Incivility in reader comments (example), version 0.1\nAbout this codebook: The main form of incivility in a reader comment, and how severe the comment is. Adapted from Coe, Kenski and Rains (2014) to show the reliacode codebook format, including an ordinal variable; not a validated instrument.\nUnit of analysis: One reader comment posted below a news article.\nLanguage of the texts: en\nGeneral instructions: Code the comment as written, without guessing at sarcasm that the text does not signal. Disagreement, however strong, is not incivility on its own.\n\nVariable: incivility_form (Main form of incivility)\nDefinition: The most prominent form of uncivil language in the comment.\nDecision rules:\n- If the comment uses more than one form, code the one that takes up most of the comment.\n- If two forms are equally prominent, code the one that appears first.\n- Quoting someone else's uncivil words in order to criticize them is not incivility.\n\nCategories (choose exactly one):\n- none (None): The comment contains no uncivil language.\n  Example: \"I disagree with the plan, but the author makes fair points about the costs.\"\n- name_calling (Name-calling): Insulting or belittling words aimed at a person or a group of people.\n  Example: \"Only a clown would vote for this mayor.\"\n- aspersion (Aspersion): Disparaging remarks about an idea, plan, policy or action, rather than about a person.\n  Example: \"This is the dumbest budget proposal I have ever read.\" (The insult is aimed at the proposal, not at its author.)\n- lying (Accusation of lying): Saying or implying that a person, idea or report is dishonest or deliberately misleading.\n  Example: \"The senator is lying again about where the money went.\"\n- vulgarity (Vulgarity): Swear words or crude language.\n  Example: \"Damn, nobody saw that coming.\"\n- pejorative_for_speech (Pejorative for speech): Disparaging remarks about the way someone speaks or writes.\n  Example: \"Stop whining and read the actual report.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, name_calling, aspersion, lying, vulgarity, pejorative_for_speech. Write nothing else.",
+     "user_template": "Text to code:\n\n{text}",
+     "retry_template": "That answer cannot be used: {problem} Answer again with only a JSON object of the form {{\"code\": \"...\"}}, where the code is one of: {codes}.",
+     "json_schema": {
+      "type": "object",
+      "properties": {
+       "code": {
+        "type": "string",
+        "enum": [
+         "none",
+         "name_calling",
+         "aspersion",
+         "lying",
+         "vulgarity",
+         "pejorative_for_speech"
+        ]
+       }
+      },
+      "required": [
+       "code"
+      ],
+      "additionalProperties": false
+     },
+     "hash": "sha256:057052a3667e4c260b3dd5a4530b99a9119064774307246bd3045f10c79d7cfd",
+     "messages": [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Incivility in reader comments (example), version 0.1\nAbout this codebook: The main form of incivility in a reader comment, and how severe the comment is. Adapted from Coe, Kenski and Rains (2014) to show the reliacode codebook format, including an ordinal variable; not a validated instrument.\nUnit of analysis: One reader comment posted below a news article.\nLanguage of the texts: en\nGeneral instructions: Code the comment as written, without guessing at sarcasm that the text does not signal. Disagreement, however strong, is not incivility on its own.\n\nVariable: incivility_form (Main form of incivility)\nDefinition: The most prominent form of uncivil language in the comment.\nDecision rules:\n- If the comment uses more than one form, code the one that takes up most of the comment.\n- If two forms are equally prominent, code the one that appears first.\n- Quoting someone else's uncivil words in order to criticize them is not incivility.\n\nCategories (choose exactly one):\n- none (None): The comment contains no uncivil language.\n  Example: \"I disagree with the plan, but the author makes fair points about the costs.\"\n- name_calling (Name-calling): Insulting or belittling words aimed at a person or a group of people.\n  Example: \"Only a clown would vote for this mayor.\"\n- aspersion (Aspersion): Disparaging remarks about an idea, plan, policy or action, rather than about a person.\n  Example: \"This is the dumbest budget proposal I have ever read.\" (The insult is aimed at the proposal, not at its author.)\n- lying (Accusation of lying): Saying or implying that a person, idea or report is dishonest or deliberately misleading.\n  Example: \"The senator is lying again about where the money went.\"\n- vulgarity (Vulgarity): Swear words or crude language.\n  Example: \"Damn, nobody saw that coming.\"\n- pejorative_for_speech (Pejorative for speech): Disparaging remarks about the way someone speaks or writes.\n  Example: \"Stop whining and read the actual report.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, name_calling, aspersion, lying, vulgarity, pejorative_for_speech. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      }
+     ]
+    },
+    {
+     "variable": "severity",
+     "system": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Incivility in reader comments (example), version 0.1\nAbout this codebook: The main form of incivility in a reader comment, and how severe the comment is. Adapted from Coe, Kenski and Rains (2014) to show the reliacode codebook format, including an ordinal variable; not a validated instrument.\nUnit of analysis: One reader comment posted below a news article.\nLanguage of the texts: en\nGeneral instructions: Code the comment as written, without guessing at sarcasm that the text does not signal. Disagreement, however strong, is not incivility on its own.\n\nVariable: severity (Severity)\nDefinition: How strongly uncivil the comment is overall. This scale is added for illustration and is not part of Coe, Kenski and Rains (2014).\nThe categories are ordered: a higher level means more of what is measured.\nDecision rules:\n- Judge the comment as a whole, using its most uncivil sentence.\n- If you are unsure between two levels, code the lower one.\n- Code none here if and only if incivility_form is none.\n\nCategories (choose exactly one):\n- none (level 0, None): No uncivil language.\n  Example: \"I disagree with the plan, but the author makes fair points about the costs.\"\n- mild (level 1, Mild): Incivility aimed at ideas, plans, reports or the way people speak, including saying a plan or report is dishonest, or crude language that is not aimed at anyone.\n  Example: \"This is the dumbest budget proposal I have ever read.\"\n- strong (level 2, Strong): Incivility aimed at people: name-calling, saying a person is lying, or crude language directed at someone.\n  Example: \"Only a clown would vote for this mayor.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, mild, strong. Write nothing else.",
+     "user_template": "Text to code:\n\n{text}",
+     "retry_template": "That answer cannot be used: {problem} Answer again with only a JSON object of the form {{\"code\": \"...\"}}, where the code is one of: {codes}.",
+     "json_schema": {
+      "type": "object",
+      "properties": {
+       "code": {
+        "type": "string",
+        "enum": [
+         "none",
+         "mild",
+         "strong"
+        ]
+       }
+      },
+      "required": [
+       "code"
+      ],
+      "additionalProperties": false
+     },
+     "hash": "sha256:53299d2b02e07a2616e29e04c947bd3307b2ccdca7864da0a56cefc5953a74f2",
+     "messages": [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Incivility in reader comments (example), version 0.1\nAbout this codebook: The main form of incivility in a reader comment, and how severe the comment is. Adapted from Coe, Kenski and Rains (2014) to show the reliacode codebook format, including an ordinal variable; not a validated instrument.\nUnit of analysis: One reader comment posted below a news article.\nLanguage of the texts: en\nGeneral instructions: Code the comment as written, without guessing at sarcasm that the text does not signal. Disagreement, however strong, is not incivility on its own.\n\nVariable: severity (Severity)\nDefinition: How strongly uncivil the comment is overall. This scale is added for illustration and is not part of Coe, Kenski and Rains (2014).\nThe categories are ordered: a higher level means more of what is measured.\nDecision rules:\n- Judge the comment as a whole, using its most uncivil sentence.\n- If you are unsure between two levels, code the lower one.\n- Code none here if and only if incivility_form is none.\n\nCategories (choose exactly one):\n- none (level 0, None): No uncivil language.\n  Example: \"I disagree with the plan, but the author makes fair points about the costs.\"\n- mild (level 1, Mild): Incivility aimed at ideas, plans, reports or the way people speak, including saying a plan or report is dishonest, or crude language that is not aimed at anyone.\n  Example: \"This is the dumbest budget proposal I have ever read.\"\n- strong (level 2, Strong): Incivility aimed at people: name-calling, saying a person is lying, or crude language directed at someone.\n  Example: \"Only a clown would vote for this mayor.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, mild, strong. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      }
+     ]
+    }
+   ],
+   "asked_again": {
+    "calls": [
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Incivility in reader comments (example), version 0.1\nAbout this codebook: The main form of incivility in a reader comment, and how severe the comment is. Adapted from Coe, Kenski and Rains (2014) to show the reliacode codebook format, including an ordinal variable; not a validated instrument.\nUnit of analysis: One reader comment posted below a news article.\nLanguage of the texts: en\nGeneral instructions: Code the comment as written, without guessing at sarcasm that the text does not signal. Disagreement, however strong, is not incivility on its own.\n\nVariable: incivility_form (Main form of incivility)\nDefinition: The most prominent form of uncivil language in the comment.\nDecision rules:\n- If the comment uses more than one form, code the one that takes up most of the comment.\n- If two forms are equally prominent, code the one that appears first.\n- Quoting someone else's uncivil words in order to criticize them is not incivility.\n\nCategories (choose exactly one):\n- none (None): The comment contains no uncivil language.\n  Example: \"I disagree with the plan, but the author makes fair points about the costs.\"\n- name_calling (Name-calling): Insulting or belittling words aimed at a person or a group of people.\n  Example: \"Only a clown would vote for this mayor.\"\n- aspersion (Aspersion): Disparaging remarks about an idea, plan, policy or action, rather than about a person.\n  Example: \"This is the dumbest budget proposal I have ever read.\" (The insult is aimed at the proposal, not at its author.)\n- lying (Accusation of lying): Saying or implying that a person, idea or report is dishonest or deliberately misleading.\n  Example: \"The senator is lying again about where the money went.\"\n- vulgarity (Vulgarity): Swear words or crude language.\n  Example: \"Damn, nobody saw that coming.\"\n- pejorative_for_speech (Pejorative for speech): Disparaging remarks about the way someone speaks or writes.\n  Example: \"Stop whining and read the actual report.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, name_calling, aspersion, lying, vulgarity, pejorative_for_speech. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      }
+     ],
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Incivility in reader comments (example), version 0.1\nAbout this codebook: The main form of incivility in a reader comment, and how severe the comment is. Adapted from Coe, Kenski and Rains (2014) to show the reliacode codebook format, including an ordinal variable; not a validated instrument.\nUnit of analysis: One reader comment posted below a news article.\nLanguage of the texts: en\nGeneral instructions: Code the comment as written, without guessing at sarcasm that the text does not signal. Disagreement, however strong, is not incivility on its own.\n\nVariable: incivility_form (Main form of incivility)\nDefinition: The most prominent form of uncivil language in the comment.\nDecision rules:\n- If the comment uses more than one form, code the one that takes up most of the comment.\n- If two forms are equally prominent, code the one that appears first.\n- Quoting someone else's uncivil words in order to criticize them is not incivility.\n\nCategories (choose exactly one):\n- none (None): The comment contains no uncivil language.\n  Example: \"I disagree with the plan, but the author makes fair points about the costs.\"\n- name_calling (Name-calling): Insulting or belittling words aimed at a person or a group of people.\n  Example: \"Only a clown would vote for this mayor.\"\n- aspersion (Aspersion): Disparaging remarks about an idea, plan, policy or action, rather than about a person.\n  Example: \"This is the dumbest budget proposal I have ever read.\" (The insult is aimed at the proposal, not at its author.)\n- lying (Accusation of lying): Saying or implying that a person, idea or report is dishonest or deliberately misleading.\n  Example: \"The senator is lying again about where the money went.\"\n- vulgarity (Vulgarity): Swear words or crude language.\n  Example: \"Damn, nobody saw that coming.\"\n- pejorative_for_speech (Pejorative for speech): Disparaging remarks about the way someone speaks or writes.\n  Example: \"Stop whining and read the actual report.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, name_calling, aspersion, lying, vulgarity, pejorative_for_speech. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      },
+      {
+       "role": "assistant",
+       "content": "I think it is positive."
+      },
+      {
+       "role": "user",
+       "content": "That answer cannot be used: The answer is not a JSON object: \"I think it is positive.\". Answer again with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, name_calling, aspersion, lying, vulgarity, pejorative_for_speech."
+      }
+     ],
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Incivility in reader comments (example), version 0.1\nAbout this codebook: The main form of incivility in a reader comment, and how severe the comment is. Adapted from Coe, Kenski and Rains (2014) to show the reliacode codebook format, including an ordinal variable; not a validated instrument.\nUnit of analysis: One reader comment posted below a news article.\nLanguage of the texts: en\nGeneral instructions: Code the comment as written, without guessing at sarcasm that the text does not signal. Disagreement, however strong, is not incivility on its own.\n\nVariable: severity (Severity)\nDefinition: How strongly uncivil the comment is overall. This scale is added for illustration and is not part of Coe, Kenski and Rains (2014).\nThe categories are ordered: a higher level means more of what is measured.\nDecision rules:\n- Judge the comment as a whole, using its most uncivil sentence.\n- If you are unsure between two levels, code the lower one.\n- Code none here if and only if incivility_form is none.\n\nCategories (choose exactly one):\n- none (level 0, None): No uncivil language.\n  Example: \"I disagree with the plan, but the author makes fair points about the costs.\"\n- mild (level 1, Mild): Incivility aimed at ideas, plans, reports or the way people speak, including saying a plan or report is dishonest, or crude language that is not aimed at anyone.\n  Example: \"This is the dumbest budget proposal I have ever read.\"\n- strong (level 2, Strong): Incivility aimed at people: name-calling, saying a person is lying, or crude language directed at someone.\n  Example: \"Only a clown would vote for this mayor.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, mild, strong. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      }
+     ],
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Incivility in reader comments (example), version 0.1\nAbout this codebook: The main form of incivility in a reader comment, and how severe the comment is. Adapted from Coe, Kenski and Rains (2014) to show the reliacode codebook format, including an ordinal variable; not a validated instrument.\nUnit of analysis: One reader comment posted below a news article.\nLanguage of the texts: en\nGeneral instructions: Code the comment as written, without guessing at sarcasm that the text does not signal. Disagreement, however strong, is not incivility on its own.\n\nVariable: severity (Severity)\nDefinition: How strongly uncivil the comment is overall. This scale is added for illustration and is not part of Coe, Kenski and Rains (2014).\nThe categories are ordered: a higher level means more of what is measured.\nDecision rules:\n- Judge the comment as a whole, using its most uncivil sentence.\n- If you are unsure between two levels, code the lower one.\n- Code none here if and only if incivility_form is none.\n\nCategories (choose exactly one):\n- none (level 0, None): No uncivil language.\n  Example: \"I disagree with the plan, but the author makes fair points about the costs.\"\n- mild (level 1, Mild): Incivility aimed at ideas, plans, reports or the way people speak, including saying a plan or report is dishonest, or crude language that is not aimed at anyone.\n  Example: \"This is the dumbest budget proposal I have ever read.\"\n- strong (level 2, Strong): Incivility aimed at people: name-calling, saying a person is lying, or crude language directed at someone.\n  Example: \"Only a clown would vote for this mayor.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, mild, strong. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      },
+      {
+       "role": "assistant",
+       "content": "I think it is positive."
+      },
+      {
+       "role": "user",
+       "content": "That answer cannot be used: The answer is not a JSON object: \"I think it is positive.\". Answer again with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, mild, strong."
+      }
+     ]
+    ],
+    "json_schemas": [
+     {
+      "type": "object",
+      "properties": {
+       "code": {
+        "type": "string",
+        "enum": [
+         "none",
+         "name_calling",
+         "aspersion",
+         "lying",
+         "vulgarity",
+         "pejorative_for_speech"
+        ]
+       }
+      },
+      "required": [
+       "code"
+      ],
+      "additionalProperties": false
+     },
+     {
+      "type": "object",
+      "properties": {
+       "code": {
+        "type": "string",
+        "enum": [
+         "none",
+         "name_calling",
+         "aspersion",
+         "lying",
+         "vulgarity",
+         "pejorative_for_speech"
+        ]
+       }
+      },
+      "required": [
+       "code"
+      ],
+      "additionalProperties": false
+     },
+     {
+      "type": "object",
+      "properties": {
+       "code": {
+        "type": "string",
+        "enum": [
+         "none",
+         "mild",
+         "strong"
+        ]
+       }
+      },
+      "required": [
+       "code"
+      ],
+      "additionalProperties": false
+     },
+     {
+      "type": "object",
+      "properties": {
+       "code": {
+        "type": "string",
+        "enum": [
+         "none",
+         "mild",
+         "strong"
+        ]
+       }
+      },
+      "required": [
+       "code"
+      ],
+      "additionalProperties": false
+     }
+    ],
+    "prompt_hashes": [
+     "sha256:057052a3667e4c260b3dd5a4530b99a9119064774307246bd3045f10c79d7cfd",
+     "sha256:53299d2b02e07a2616e29e04c947bd3307b2ccdca7864da0a56cefc5953a74f2"
+    ],
+    "codes": [
+     "none",
+     "none"
+    ]
+   },
+   "missing": {
+    "calls": [
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Incivility in reader comments (example), version 0.1\nAbout this codebook: The main form of incivility in a reader comment, and how severe the comment is. Adapted from Coe, Kenski and Rains (2014) to show the reliacode codebook format, including an ordinal variable; not a validated instrument.\nUnit of analysis: One reader comment posted below a news article.\nLanguage of the texts: en\nGeneral instructions: Code the comment as written, without guessing at sarcasm that the text does not signal. Disagreement, however strong, is not incivility on its own.\n\nVariable: incivility_form (Main form of incivility)\nDefinition: The most prominent form of uncivil language in the comment.\nDecision rules:\n- If the comment uses more than one form, code the one that takes up most of the comment.\n- If two forms are equally prominent, code the one that appears first.\n- Quoting someone else's uncivil words in order to criticize them is not incivility.\n\nCategories (choose exactly one):\n- none (None): The comment contains no uncivil language.\n  Example: \"I disagree with the plan, but the author makes fair points about the costs.\"\n- name_calling (Name-calling): Insulting or belittling words aimed at a person or a group of people.\n  Example: \"Only a clown would vote for this mayor.\"\n- aspersion (Aspersion): Disparaging remarks about an idea, plan, policy or action, rather than about a person.\n  Example: \"This is the dumbest budget proposal I have ever read.\" (The insult is aimed at the proposal, not at its author.)\n- lying (Accusation of lying): Saying or implying that a person, idea or report is dishonest or deliberately misleading.\n  Example: \"The senator is lying again about where the money went.\"\n- vulgarity (Vulgarity): Swear words or crude language.\n  Example: \"Damn, nobody saw that coming.\"\n- pejorative_for_speech (Pejorative for speech): Disparaging remarks about the way someone speaks or writes.\n  Example: \"Stop whining and read the actual report.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, name_calling, aspersion, lying, vulgarity, pejorative_for_speech. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      }
+     ],
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Incivility in reader comments (example), version 0.1\nAbout this codebook: The main form of incivility in a reader comment, and how severe the comment is. Adapted from Coe, Kenski and Rains (2014) to show the reliacode codebook format, including an ordinal variable; not a validated instrument.\nUnit of analysis: One reader comment posted below a news article.\nLanguage of the texts: en\nGeneral instructions: Code the comment as written, without guessing at sarcasm that the text does not signal. Disagreement, however strong, is not incivility on its own.\n\nVariable: incivility_form (Main form of incivility)\nDefinition: The most prominent form of uncivil language in the comment.\nDecision rules:\n- If the comment uses more than one form, code the one that takes up most of the comment.\n- If two forms are equally prominent, code the one that appears first.\n- Quoting someone else's uncivil words in order to criticize them is not incivility.\n\nCategories (choose exactly one):\n- none (None): The comment contains no uncivil language.\n  Example: \"I disagree with the plan, but the author makes fair points about the costs.\"\n- name_calling (Name-calling): Insulting or belittling words aimed at a person or a group of people.\n  Example: \"Only a clown would vote for this mayor.\"\n- aspersion (Aspersion): Disparaging remarks about an idea, plan, policy or action, rather than about a person.\n  Example: \"This is the dumbest budget proposal I have ever read.\" (The insult is aimed at the proposal, not at its author.)\n- lying (Accusation of lying): Saying or implying that a person, idea or report is dishonest or deliberately misleading.\n  Example: \"The senator is lying again about where the money went.\"\n- vulgarity (Vulgarity): Swear words or crude language.\n  Example: \"Damn, nobody saw that coming.\"\n- pejorative_for_speech (Pejorative for speech): Disparaging remarks about the way someone speaks or writes.\n  Example: \"Stop whining and read the actual report.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, name_calling, aspersion, lying, vulgarity, pejorative_for_speech. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      },
+      {
+       "role": "assistant",
+       "content": "{\"code\": \"Not-A-Code\"}"
+      },
+      {
+       "role": "user",
+       "content": "That answer cannot be used: \"Not-A-Code\" is not one of the codes. Answer again with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, name_calling, aspersion, lying, vulgarity, pejorative_for_speech."
+      }
+     ],
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Incivility in reader comments (example), version 0.1\nAbout this codebook: The main form of incivility in a reader comment, and how severe the comment is. Adapted from Coe, Kenski and Rains (2014) to show the reliacode codebook format, including an ordinal variable; not a validated instrument.\nUnit of analysis: One reader comment posted below a news article.\nLanguage of the texts: en\nGeneral instructions: Code the comment as written, without guessing at sarcasm that the text does not signal. Disagreement, however strong, is not incivility on its own.\n\nVariable: severity (Severity)\nDefinition: How strongly uncivil the comment is overall. This scale is added for illustration and is not part of Coe, Kenski and Rains (2014).\nThe categories are ordered: a higher level means more of what is measured.\nDecision rules:\n- Judge the comment as a whole, using its most uncivil sentence.\n- If you are unsure between two levels, code the lower one.\n- Code none here if and only if incivility_form is none.\n\nCategories (choose exactly one):\n- none (level 0, None): No uncivil language.\n  Example: \"I disagree with the plan, but the author makes fair points about the costs.\"\n- mild (level 1, Mild): Incivility aimed at ideas, plans, reports or the way people speak, including saying a plan or report is dishonest, or crude language that is not aimed at anyone.\n  Example: \"This is the dumbest budget proposal I have ever read.\"\n- strong (level 2, Strong): Incivility aimed at people: name-calling, saying a person is lying, or crude language directed at someone.\n  Example: \"Only a clown would vote for this mayor.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, mild, strong. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      }
+     ],
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Incivility in reader comments (example), version 0.1\nAbout this codebook: The main form of incivility in a reader comment, and how severe the comment is. Adapted from Coe, Kenski and Rains (2014) to show the reliacode codebook format, including an ordinal variable; not a validated instrument.\nUnit of analysis: One reader comment posted below a news article.\nLanguage of the texts: en\nGeneral instructions: Code the comment as written, without guessing at sarcasm that the text does not signal. Disagreement, however strong, is not incivility on its own.\n\nVariable: severity (Severity)\nDefinition: How strongly uncivil the comment is overall. This scale is added for illustration and is not part of Coe, Kenski and Rains (2014).\nThe categories are ordered: a higher level means more of what is measured.\nDecision rules:\n- Judge the comment as a whole, using its most uncivil sentence.\n- If you are unsure between two levels, code the lower one.\n- Code none here if and only if incivility_form is none.\n\nCategories (choose exactly one):\n- none (level 0, None): No uncivil language.\n  Example: \"I disagree with the plan, but the author makes fair points about the costs.\"\n- mild (level 1, Mild): Incivility aimed at ideas, plans, reports or the way people speak, including saying a plan or report is dishonest, or crude language that is not aimed at anyone.\n  Example: \"This is the dumbest budget proposal I have ever read.\"\n- strong (level 2, Strong): Incivility aimed at people: name-calling, saying a person is lying, or crude language directed at someone.\n  Example: \"Only a clown would vote for this mayor.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, mild, strong. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      },
+      {
+       "role": "assistant",
+       "content": "{\"code\": \"Not-A-Code\"}"
+      },
+      {
+       "role": "user",
+       "content": "That answer cannot be used: \"Not-A-Code\" is not one of the codes. Answer again with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, mild, strong."
+      }
+     ]
+    ],
+    "missing_reasons": [
+     "None of the 2 answers could be used. The last one: \"Not-A-Code\" is not one of the codes.",
+     "None of the 2 answers could be used. The last one: \"Not-A-Code\" is not one of the codes."
+    ]
+   }
+  },
+  {
+   "name": "examples/codebooks/news_frames.yaml",
+   "file": "examples/codebooks/news_frames.yaml",
+   "content_hash": "sha256:b4bdbacd8a7fae5da8725e4bd5c2f5f5a44187922e5ec380a2b21f2ee491bdb1",
+   "prompts": [
+    {
+     "variable": "dominant_frame",
+     "system": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Generic news frames (example), version 0.1\nAbout this codebook: Which of five generic frames dominates a news article, and which actor the article holds responsible for causing or solving the problem. Adapted from Semetko and Valkenburg (2000) to show the reliacode codebook format; not a validated instrument.\nUnit of analysis: One news article (headline and body text).\nLanguage of the texts: en\nGeneral instructions: Read the headline and the whole article before coding. Code what the article emphasizes, not what you think about the issue.\n\nVariable: dominant_frame (Dominant frame)\nDefinition: The frame that most shapes how the article presents its main event or issue.\nDecision rules:\n- Give the most weight to the headline and the first two paragraphs.\n- If two frames are equally prominent, code the one that appears first in the article.\n- Code \"none\" only when the article reports facts without emphasizing any of the frames.\n\nCategories (choose exactly one):\n- conflict (Conflict): The article emphasizes disagreement, criticism or competition between individuals, groups, parties or institutions.\n  Example: \"Opposition leaders accused the minister of misleading parliament, and the minister replied that the opposition had no plan of its own.\" (Two sides attacking each other is the core of the story.)\n- human_interest (Human interest): The article puts a human face on the issue, telling it through the experiences and feelings of particular people.\n  Example: \"For a nurse who is raising three children alone, the hospital closure means a two-hour drive to work each morning.\"\n- economic (Economic consequences): The article stresses the financial gains, losses or costs that the event or issue brings for people, organizations, regions or countries.\n  Example: \"The new tariff is expected to cost local farmers about 12 million dollars a year in lost exports.\"\n- morality (Morality): The article places the issue in the context of moral values, religious principles or social prescriptions about how people ought to behave.\n  Example: \"Church leaders called the policy \"a test of our duty to care for strangers.\"\"\n- responsibility (Attribution of responsibility): The article emphasizes who caused the problem or who should solve it.\n  Example: \"Engineers said the council's decision to skip inspections led directly to the bridge collapse.\" (The story is organized around who is to blame.)\n- none (No dominant frame): The article reports facts without emphasizing any of the frames above.\n  Example: \"The budget committee will meet on Tuesday at 10 a.m. in Room 4.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: conflict, human_interest, economic, morality, responsibility, none. Write nothing else.",
+     "user_template": "Text to code:\n\n{text}",
+     "retry_template": "That answer cannot be used: {problem} Answer again with only a JSON object of the form {{\"code\": \"...\"}}, where the code is one of: {codes}.",
+     "json_schema": {
+      "type": "object",
+      "properties": {
+       "code": {
+        "type": "string",
+        "enum": [
+         "conflict",
+         "human_interest",
+         "economic",
+         "morality",
+         "responsibility",
+         "none"
+        ]
+       }
+      },
+      "required": [
+       "code"
+      ],
+      "additionalProperties": false
+     },
+     "hash": "sha256:496fc7e5326a23fa332fe78c97a30e6db3ac9c2ce5fd837d90e804f16c76ff30",
+     "messages": [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Generic news frames (example), version 0.1\nAbout this codebook: Which of five generic frames dominates a news article, and which actor the article holds responsible for causing or solving the problem. Adapted from Semetko and Valkenburg (2000) to show the reliacode codebook format; not a validated instrument.\nUnit of analysis: One news article (headline and body text).\nLanguage of the texts: en\nGeneral instructions: Read the headline and the whole article before coding. Code what the article emphasizes, not what you think about the issue.\n\nVariable: dominant_frame (Dominant frame)\nDefinition: The frame that most shapes how the article presents its main event or issue.\nDecision rules:\n- Give the most weight to the headline and the first two paragraphs.\n- If two frames are equally prominent, code the one that appears first in the article.\n- Code \"none\" only when the article reports facts without emphasizing any of the frames.\n\nCategories (choose exactly one):\n- conflict (Conflict): The article emphasizes disagreement, criticism or competition between individuals, groups, parties or institutions.\n  Example: \"Opposition leaders accused the minister of misleading parliament, and the minister replied that the opposition had no plan of its own.\" (Two sides attacking each other is the core of the story.)\n- human_interest (Human interest): The article puts a human face on the issue, telling it through the experiences and feelings of particular people.\n  Example: \"For a nurse who is raising three children alone, the hospital closure means a two-hour drive to work each morning.\"\n- economic (Economic consequences): The article stresses the financial gains, losses or costs that the event or issue brings for people, organizations, regions or countries.\n  Example: \"The new tariff is expected to cost local farmers about 12 million dollars a year in lost exports.\"\n- morality (Morality): The article places the issue in the context of moral values, religious principles or social prescriptions about how people ought to behave.\n  Example: \"Church leaders called the policy \"a test of our duty to care for strangers.\"\"\n- responsibility (Attribution of responsibility): The article emphasizes who caused the problem or who should solve it.\n  Example: \"Engineers said the council's decision to skip inspections led directly to the bridge collapse.\" (The story is organized around who is to blame.)\n- none (No dominant frame): The article reports facts without emphasizing any of the frames above.\n  Example: \"The budget committee will meet on Tuesday at 10 a.m. in Room 4.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: conflict, human_interest, economic, morality, responsibility, none. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      }
+     ]
+    },
+    {
+     "variable": "responsibility_target",
+     "system": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Generic news frames (example), version 0.1\nAbout this codebook: Which of five generic frames dominates a news article, and which actor the article holds responsible for causing or solving the problem. Adapted from Semetko and Valkenburg (2000) to show the reliacode codebook format; not a validated instrument.\nUnit of analysis: One news article (headline and body text).\nLanguage of the texts: en\nGeneral instructions: Read the headline and the whole article before coding. Code what the article emphasizes, not what you think about the issue.\n\nVariable: responsibility_target (Responsibility assigned to)\nDefinition: When the article says who caused a problem or who should solve it, the kind of actor it points to.\nInstructions: Code this variable for every article, whatever its dominant frame.\nDecision rules:\n- If several actors are named, code the one the article holds responsible most clearly.\n- Agencies, ministries, councils and elected officials acting in office count as government.\n\nCategories (choose exactly one):\n- government (Government): Responsibility is placed on a government, an agency or officials in office.\n  Example: \"The ministry has known about the leak for a year and has done nothing.\"\n- non_government (Individual or group): Responsibility is placed on individuals, companies or groups outside government.\n  Example: \"The company ignored three warnings about the faulty brakes.\"\n- not_applicable (Not applicable): The article does not say who caused the problem or who should solve it.\n  Example: \"The festival drew about 20,000 visitors over the weekend.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: government, non_government, not_applicable. Write nothing else.",
+     "user_template": "Text to code:\n\n{text}",
+     "retry_template": "That answer cannot be used: {problem} Answer again with only a JSON object of the form {{\"code\": \"...\"}}, where the code is one of: {codes}.",
+     "json_schema": {
+      "type": "object",
+      "properties": {
+       "code": {
+        "type": "string",
+        "enum": [
+         "government",
+         "non_government",
+         "not_applicable"
+        ]
+       }
+      },
+      "required": [
+       "code"
+      ],
+      "additionalProperties": false
+     },
+     "hash": "sha256:f1efb164261014d2e0c143a925ee309f94ed185c4ca83f24088e0908341516dc",
+     "messages": [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Generic news frames (example), version 0.1\nAbout this codebook: Which of five generic frames dominates a news article, and which actor the article holds responsible for causing or solving the problem. Adapted from Semetko and Valkenburg (2000) to show the reliacode codebook format; not a validated instrument.\nUnit of analysis: One news article (headline and body text).\nLanguage of the texts: en\nGeneral instructions: Read the headline and the whole article before coding. Code what the article emphasizes, not what you think about the issue.\n\nVariable: responsibility_target (Responsibility assigned to)\nDefinition: When the article says who caused a problem or who should solve it, the kind of actor it points to.\nInstructions: Code this variable for every article, whatever its dominant frame.\nDecision rules:\n- If several actors are named, code the one the article holds responsible most clearly.\n- Agencies, ministries, councils and elected officials acting in office count as government.\n\nCategories (choose exactly one):\n- government (Government): Responsibility is placed on a government, an agency or officials in office.\n  Example: \"The ministry has known about the leak for a year and has done nothing.\"\n- non_government (Individual or group): Responsibility is placed on individuals, companies or groups outside government.\n  Example: \"The company ignored three warnings about the faulty brakes.\"\n- not_applicable (Not applicable): The article does not say who caused the problem or who should solve it.\n  Example: \"The festival drew about 20,000 visitors over the weekend.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: government, non_government, not_applicable. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      }
+     ]
+    }
+   ],
+   "asked_again": {
+    "calls": [
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Generic news frames (example), version 0.1\nAbout this codebook: Which of five generic frames dominates a news article, and which actor the article holds responsible for causing or solving the problem. Adapted from Semetko and Valkenburg (2000) to show the reliacode codebook format; not a validated instrument.\nUnit of analysis: One news article (headline and body text).\nLanguage of the texts: en\nGeneral instructions: Read the headline and the whole article before coding. Code what the article emphasizes, not what you think about the issue.\n\nVariable: dominant_frame (Dominant frame)\nDefinition: The frame that most shapes how the article presents its main event or issue.\nDecision rules:\n- Give the most weight to the headline and the first two paragraphs.\n- If two frames are equally prominent, code the one that appears first in the article.\n- Code \"none\" only when the article reports facts without emphasizing any of the frames.\n\nCategories (choose exactly one):\n- conflict (Conflict): The article emphasizes disagreement, criticism or competition between individuals, groups, parties or institutions.\n  Example: \"Opposition leaders accused the minister of misleading parliament, and the minister replied that the opposition had no plan of its own.\" (Two sides attacking each other is the core of the story.)\n- human_interest (Human interest): The article puts a human face on the issue, telling it through the experiences and feelings of particular people.\n  Example: \"For a nurse who is raising three children alone, the hospital closure means a two-hour drive to work each morning.\"\n- economic (Economic consequences): The article stresses the financial gains, losses or costs that the event or issue brings for people, organizations, regions or countries.\n  Example: \"The new tariff is expected to cost local farmers about 12 million dollars a year in lost exports.\"\n- morality (Morality): The article places the issue in the context of moral values, religious principles or social prescriptions about how people ought to behave.\n  Example: \"Church leaders called the policy \"a test of our duty to care for strangers.\"\"\n- responsibility (Attribution of responsibility): The article emphasizes who caused the problem or who should solve it.\n  Example: \"Engineers said the council's decision to skip inspections led directly to the bridge collapse.\" (The story is organized around who is to blame.)\n- none (No dominant frame): The article reports facts without emphasizing any of the frames above.\n  Example: \"The budget committee will meet on Tuesday at 10 a.m. in Room 4.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: conflict, human_interest, economic, morality, responsibility, none. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      }
+     ],
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Generic news frames (example), version 0.1\nAbout this codebook: Which of five generic frames dominates a news article, and which actor the article holds responsible for causing or solving the problem. Adapted from Semetko and Valkenburg (2000) to show the reliacode codebook format; not a validated instrument.\nUnit of analysis: One news article (headline and body text).\nLanguage of the texts: en\nGeneral instructions: Read the headline and the whole article before coding. Code what the article emphasizes, not what you think about the issue.\n\nVariable: dominant_frame (Dominant frame)\nDefinition: The frame that most shapes how the article presents its main event or issue.\nDecision rules:\n- Give the most weight to the headline and the first two paragraphs.\n- If two frames are equally prominent, code the one that appears first in the article.\n- Code \"none\" only when the article reports facts without emphasizing any of the frames.\n\nCategories (choose exactly one):\n- conflict (Conflict): The article emphasizes disagreement, criticism or competition between individuals, groups, parties or institutions.\n  Example: \"Opposition leaders accused the minister of misleading parliament, and the minister replied that the opposition had no plan of its own.\" (Two sides attacking each other is the core of the story.)\n- human_interest (Human interest): The article puts a human face on the issue, telling it through the experiences and feelings of particular people.\n  Example: \"For a nurse who is raising three children alone, the hospital closure means a two-hour drive to work each morning.\"\n- economic (Economic consequences): The article stresses the financial gains, losses or costs that the event or issue brings for people, organizations, regions or countries.\n  Example: \"The new tariff is expected to cost local farmers about 12 million dollars a year in lost exports.\"\n- morality (Morality): The article places the issue in the context of moral values, religious principles or social prescriptions about how people ought to behave.\n  Example: \"Church leaders called the policy \"a test of our duty to care for strangers.\"\"\n- responsibility (Attribution of responsibility): The article emphasizes who caused the problem or who should solve it.\n  Example: \"Engineers said the council's decision to skip inspections led directly to the bridge collapse.\" (The story is organized around who is to blame.)\n- none (No dominant frame): The article reports facts without emphasizing any of the frames above.\n  Example: \"The budget committee will meet on Tuesday at 10 a.m. in Room 4.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: conflict, human_interest, economic, morality, responsibility, none. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      },
+      {
+       "role": "assistant",
+       "content": "I think it is positive."
+      },
+      {
+       "role": "user",
+       "content": "That answer cannot be used: The answer is not a JSON object: \"I think it is positive.\". Answer again with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: conflict, human_interest, economic, morality, responsibility, none."
+      }
+     ],
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Generic news frames (example), version 0.1\nAbout this codebook: Which of five generic frames dominates a news article, and which actor the article holds responsible for causing or solving the problem. Adapted from Semetko and Valkenburg (2000) to show the reliacode codebook format; not a validated instrument.\nUnit of analysis: One news article (headline and body text).\nLanguage of the texts: en\nGeneral instructions: Read the headline and the whole article before coding. Code what the article emphasizes, not what you think about the issue.\n\nVariable: responsibility_target (Responsibility assigned to)\nDefinition: When the article says who caused a problem or who should solve it, the kind of actor it points to.\nInstructions: Code this variable for every article, whatever its dominant frame.\nDecision rules:\n- If several actors are named, code the one the article holds responsible most clearly.\n- Agencies, ministries, councils and elected officials acting in office count as government.\n\nCategories (choose exactly one):\n- government (Government): Responsibility is placed on a government, an agency or officials in office.\n  Example: \"The ministry has known about the leak for a year and has done nothing.\"\n- non_government (Individual or group): Responsibility is placed on individuals, companies or groups outside government.\n  Example: \"The company ignored three warnings about the faulty brakes.\"\n- not_applicable (Not applicable): The article does not say who caused the problem or who should solve it.\n  Example: \"The festival drew about 20,000 visitors over the weekend.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: government, non_government, not_applicable. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      }
+     ],
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Generic news frames (example), version 0.1\nAbout this codebook: Which of five generic frames dominates a news article, and which actor the article holds responsible for causing or solving the problem. Adapted from Semetko and Valkenburg (2000) to show the reliacode codebook format; not a validated instrument.\nUnit of analysis: One news article (headline and body text).\nLanguage of the texts: en\nGeneral instructions: Read the headline and the whole article before coding. Code what the article emphasizes, not what you think about the issue.\n\nVariable: responsibility_target (Responsibility assigned to)\nDefinition: When the article says who caused a problem or who should solve it, the kind of actor it points to.\nInstructions: Code this variable for every article, whatever its dominant frame.\nDecision rules:\n- If several actors are named, code the one the article holds responsible most clearly.\n- Agencies, ministries, councils and elected officials acting in office count as government.\n\nCategories (choose exactly one):\n- government (Government): Responsibility is placed on a government, an agency or officials in office.\n  Example: \"The ministry has known about the leak for a year and has done nothing.\"\n- non_government (Individual or group): Responsibility is placed on individuals, companies or groups outside government.\n  Example: \"The company ignored three warnings about the faulty brakes.\"\n- not_applicable (Not applicable): The article does not say who caused the problem or who should solve it.\n  Example: \"The festival drew about 20,000 visitors over the weekend.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: government, non_government, not_applicable. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      },
+      {
+       "role": "assistant",
+       "content": "I think it is positive."
+      },
+      {
+       "role": "user",
+       "content": "That answer cannot be used: The answer is not a JSON object: \"I think it is positive.\". Answer again with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: government, non_government, not_applicable."
+      }
+     ]
+    ],
+    "json_schemas": [
+     {
+      "type": "object",
+      "properties": {
+       "code": {
+        "type": "string",
+        "enum": [
+         "conflict",
+         "human_interest",
+         "economic",
+         "morality",
+         "responsibility",
+         "none"
+        ]
+       }
+      },
+      "required": [
+       "code"
+      ],
+      "additionalProperties": false
+     },
+     {
+      "type": "object",
+      "properties": {
+       "code": {
+        "type": "string",
+        "enum": [
+         "conflict",
+         "human_interest",
+         "economic",
+         "morality",
+         "responsibility",
+         "none"
+        ]
+       }
+      },
+      "required": [
+       "code"
+      ],
+      "additionalProperties": false
+     },
+     {
+      "type": "object",
+      "properties": {
+       "code": {
+        "type": "string",
+        "enum": [
+         "government",
+         "non_government",
+         "not_applicable"
+        ]
+       }
+      },
+      "required": [
+       "code"
+      ],
+      "additionalProperties": false
+     },
+     {
+      "type": "object",
+      "properties": {
+       "code": {
+        "type": "string",
+        "enum": [
+         "government",
+         "non_government",
+         "not_applicable"
+        ]
+       }
+      },
+      "required": [
+       "code"
+      ],
+      "additionalProperties": false
+     }
+    ],
+    "prompt_hashes": [
+     "sha256:496fc7e5326a23fa332fe78c97a30e6db3ac9c2ce5fd837d90e804f16c76ff30",
+     "sha256:f1efb164261014d2e0c143a925ee309f94ed185c4ca83f24088e0908341516dc"
+    ],
+    "codes": [
+     "conflict",
+     "government"
+    ]
+   },
+   "missing": {
+    "calls": [
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Generic news frames (example), version 0.1\nAbout this codebook: Which of five generic frames dominates a news article, and which actor the article holds responsible for causing or solving the problem. Adapted from Semetko and Valkenburg (2000) to show the reliacode codebook format; not a validated instrument.\nUnit of analysis: One news article (headline and body text).\nLanguage of the texts: en\nGeneral instructions: Read the headline and the whole article before coding. Code what the article emphasizes, not what you think about the issue.\n\nVariable: dominant_frame (Dominant frame)\nDefinition: The frame that most shapes how the article presents its main event or issue.\nDecision rules:\n- Give the most weight to the headline and the first two paragraphs.\n- If two frames are equally prominent, code the one that appears first in the article.\n- Code \"none\" only when the article reports facts without emphasizing any of the frames.\n\nCategories (choose exactly one):\n- conflict (Conflict): The article emphasizes disagreement, criticism or competition between individuals, groups, parties or institutions.\n  Example: \"Opposition leaders accused the minister of misleading parliament, and the minister replied that the opposition had no plan of its own.\" (Two sides attacking each other is the core of the story.)\n- human_interest (Human interest): The article puts a human face on the issue, telling it through the experiences and feelings of particular people.\n  Example: \"For a nurse who is raising three children alone, the hospital closure means a two-hour drive to work each morning.\"\n- economic (Economic consequences): The article stresses the financial gains, losses or costs that the event or issue brings for people, organizations, regions or countries.\n  Example: \"The new tariff is expected to cost local farmers about 12 million dollars a year in lost exports.\"\n- morality (Morality): The article places the issue in the context of moral values, religious principles or social prescriptions about how people ought to behave.\n  Example: \"Church leaders called the policy \"a test of our duty to care for strangers.\"\"\n- responsibility (Attribution of responsibility): The article emphasizes who caused the problem or who should solve it.\n  Example: \"Engineers said the council's decision to skip inspections led directly to the bridge collapse.\" (The story is organized around who is to blame.)\n- none (No dominant frame): The article reports facts without emphasizing any of the frames above.\n  Example: \"The budget committee will meet on Tuesday at 10 a.m. in Room 4.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: conflict, human_interest, economic, morality, responsibility, none. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      }
+     ],
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Generic news frames (example), version 0.1\nAbout this codebook: Which of five generic frames dominates a news article, and which actor the article holds responsible for causing or solving the problem. Adapted from Semetko and Valkenburg (2000) to show the reliacode codebook format; not a validated instrument.\nUnit of analysis: One news article (headline and body text).\nLanguage of the texts: en\nGeneral instructions: Read the headline and the whole article before coding. Code what the article emphasizes, not what you think about the issue.\n\nVariable: dominant_frame (Dominant frame)\nDefinition: The frame that most shapes how the article presents its main event or issue.\nDecision rules:\n- Give the most weight to the headline and the first two paragraphs.\n- If two frames are equally prominent, code the one that appears first in the article.\n- Code \"none\" only when the article reports facts without emphasizing any of the frames.\n\nCategories (choose exactly one):\n- conflict (Conflict): The article emphasizes disagreement, criticism or competition between individuals, groups, parties or institutions.\n  Example: \"Opposition leaders accused the minister of misleading parliament, and the minister replied that the opposition had no plan of its own.\" (Two sides attacking each other is the core of the story.)\n- human_interest (Human interest): The article puts a human face on the issue, telling it through the experiences and feelings of particular people.\n  Example: \"For a nurse who is raising three children alone, the hospital closure means a two-hour drive to work each morning.\"\n- economic (Economic consequences): The article stresses the financial gains, losses or costs that the event or issue brings for people, organizations, regions or countries.\n  Example: \"The new tariff is expected to cost local farmers about 12 million dollars a year in lost exports.\"\n- morality (Morality): The article places the issue in the context of moral values, religious principles or social prescriptions about how people ought to behave.\n  Example: \"Church leaders called the policy \"a test of our duty to care for strangers.\"\"\n- responsibility (Attribution of responsibility): The article emphasizes who caused the problem or who should solve it.\n  Example: \"Engineers said the council's decision to skip inspections led directly to the bridge collapse.\" (The story is organized around who is to blame.)\n- none (No dominant frame): The article reports facts without emphasizing any of the frames above.\n  Example: \"The budget committee will meet on Tuesday at 10 a.m. in Room 4.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: conflict, human_interest, economic, morality, responsibility, none. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      },
+      {
+       "role": "assistant",
+       "content": "{\"code\": \"Not-A-Code\"}"
+      },
+      {
+       "role": "user",
+       "content": "That answer cannot be used: \"Not-A-Code\" is not one of the codes. Answer again with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: conflict, human_interest, economic, morality, responsibility, none."
+      }
+     ],
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Generic news frames (example), version 0.1\nAbout this codebook: Which of five generic frames dominates a news article, and which actor the article holds responsible for causing or solving the problem. Adapted from Semetko and Valkenburg (2000) to show the reliacode codebook format; not a validated instrument.\nUnit of analysis: One news article (headline and body text).\nLanguage of the texts: en\nGeneral instructions: Read the headline and the whole article before coding. Code what the article emphasizes, not what you think about the issue.\n\nVariable: responsibility_target (Responsibility assigned to)\nDefinition: When the article says who caused a problem or who should solve it, the kind of actor it points to.\nInstructions: Code this variable for every article, whatever its dominant frame.\nDecision rules:\n- If several actors are named, code the one the article holds responsible most clearly.\n- Agencies, ministries, councils and elected officials acting in office count as government.\n\nCategories (choose exactly one):\n- government (Government): Responsibility is placed on a government, an agency or officials in office.\n  Example: \"The ministry has known about the leak for a year and has done nothing.\"\n- non_government (Individual or group): Responsibility is placed on individuals, companies or groups outside government.\n  Example: \"The company ignored three warnings about the faulty brakes.\"\n- not_applicable (Not applicable): The article does not say who caused the problem or who should solve it.\n  Example: \"The festival drew about 20,000 visitors over the weekend.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: government, non_government, not_applicable. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      }
+     ],
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Generic news frames (example), version 0.1\nAbout this codebook: Which of five generic frames dominates a news article, and which actor the article holds responsible for causing or solving the problem. Adapted from Semetko and Valkenburg (2000) to show the reliacode codebook format; not a validated instrument.\nUnit of analysis: One news article (headline and body text).\nLanguage of the texts: en\nGeneral instructions: Read the headline and the whole article before coding. Code what the article emphasizes, not what you think about the issue.\n\nVariable: responsibility_target (Responsibility assigned to)\nDefinition: When the article says who caused a problem or who should solve it, the kind of actor it points to.\nInstructions: Code this variable for every article, whatever its dominant frame.\nDecision rules:\n- If several actors are named, code the one the article holds responsible most clearly.\n- Agencies, ministries, councils and elected officials acting in office count as government.\n\nCategories (choose exactly one):\n- government (Government): Responsibility is placed on a government, an agency or officials in office.\n  Example: \"The ministry has known about the leak for a year and has done nothing.\"\n- non_government (Individual or group): Responsibility is placed on individuals, companies or groups outside government.\n  Example: \"The company ignored three warnings about the faulty brakes.\"\n- not_applicable (Not applicable): The article does not say who caused the problem or who should solve it.\n  Example: \"The festival drew about 20,000 visitors over the weekend.\"\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: government, non_government, not_applicable. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      },
+      {
+       "role": "assistant",
+       "content": "{\"code\": \"Not-A-Code\"}"
+      },
+      {
+       "role": "user",
+       "content": "That answer cannot be used: \"Not-A-Code\" is not one of the codes. Answer again with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: government, non_government, not_applicable."
+      }
+     ]
+    ],
+    "missing_reasons": [
+     "None of the 2 answers could be used. The last one: \"Not-A-Code\" is not one of the codes.",
+     "None of the 2 answers could be used. The last one: \"Not-A-Code\" is not one of the codes."
+    ]
+   }
+  },
+  {
+   "name": "tests/fixtures/golden.yaml",
+   "file": "tests/fixtures/golden.yaml",
+   "content_hash": "sha256:e5864654c321c8ac46171bfafc4aef896c50fcd9f5da3a591c6f6c60c9bff8be",
+   "prompts": [
+    {
+     "variable": "severity",
+     "system": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: golden, version 1.0\nLanguage of the texts: en\n\nVariable: severity\nDefinition: How strongly uncivil the comment is.\nThe categories are ordered: a higher level means more of what is measured.\nDecision rules:\n- If unsure between two levels, choose the lower one.\n\nCategories (choose exactly one):\n- none (level 0): No uncivil language.\n  Example: \"Merci, très clair.\"\n- strong (level 1, قوي): Insults aimed at a person.\n  Example: \"You are an idiot.\" (A direct insult.)\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, strong. Write nothing else.",
+     "user_template": "Text to code:\n\n{text}",
+     "retry_template": "That answer cannot be used: {problem} Answer again with only a JSON object of the form {{\"code\": \"...\"}}, where the code is one of: {codes}.",
+     "json_schema": {
+      "type": "object",
+      "properties": {
+       "code": {
+        "type": "string",
+        "enum": [
+         "none",
+         "strong"
+        ]
+       }
+      },
+      "required": [
+       "code"
+      ],
+      "additionalProperties": false
+     },
+     "hash": "sha256:5ad0d44f599d32bdeb693663ec5ccae0c1939bc1d316f995da660256fcce9b0c",
+     "messages": [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: golden, version 1.0\nLanguage of the texts: en\n\nVariable: severity\nDefinition: How strongly uncivil the comment is.\nThe categories are ordered: a higher level means more of what is measured.\nDecision rules:\n- If unsure between two levels, choose the lower one.\n\nCategories (choose exactly one):\n- none (level 0): No uncivil language.\n  Example: \"Merci, très clair.\"\n- strong (level 1, قوي): Insults aimed at a person.\n  Example: \"You are an idiot.\" (A direct insult.)\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, strong. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      }
+     ]
+    }
+   ],
+   "asked_again": {
+    "calls": [
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: golden, version 1.0\nLanguage of the texts: en\n\nVariable: severity\nDefinition: How strongly uncivil the comment is.\nThe categories are ordered: a higher level means more of what is measured.\nDecision rules:\n- If unsure between two levels, choose the lower one.\n\nCategories (choose exactly one):\n- none (level 0): No uncivil language.\n  Example: \"Merci, très clair.\"\n- strong (level 1, قوي): Insults aimed at a person.\n  Example: \"You are an idiot.\" (A direct insult.)\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, strong. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      }
+     ],
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: golden, version 1.0\nLanguage of the texts: en\n\nVariable: severity\nDefinition: How strongly uncivil the comment is.\nThe categories are ordered: a higher level means more of what is measured.\nDecision rules:\n- If unsure between two levels, choose the lower one.\n\nCategories (choose exactly one):\n- none (level 0): No uncivil language.\n  Example: \"Merci, très clair.\"\n- strong (level 1, قوي): Insults aimed at a person.\n  Example: \"You are an idiot.\" (A direct insult.)\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, strong. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      },
+      {
+       "role": "assistant",
+       "content": "I think it is positive."
+      },
+      {
+       "role": "user",
+       "content": "That answer cannot be used: The answer is not a JSON object: \"I think it is positive.\". Answer again with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, strong."
+      }
+     ]
+    ],
+    "json_schemas": [
+     {
+      "type": "object",
+      "properties": {
+       "code": {
+        "type": "string",
+        "enum": [
+         "none",
+         "strong"
+        ]
+       }
+      },
+      "required": [
+       "code"
+      ],
+      "additionalProperties": false
+     },
+     {
+      "type": "object",
+      "properties": {
+       "code": {
+        "type": "string",
+        "enum": [
+         "none",
+         "strong"
+        ]
+       }
+      },
+      "required": [
+       "code"
+      ],
+      "additionalProperties": false
+     }
+    ],
+    "prompt_hashes": [
+     "sha256:5ad0d44f599d32bdeb693663ec5ccae0c1939bc1d316f995da660256fcce9b0c"
+    ],
+    "codes": [
+     "none"
+    ]
+   },
+   "missing": {
+    "calls": [
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: golden, version 1.0\nLanguage of the texts: en\n\nVariable: severity\nDefinition: How strongly uncivil the comment is.\nThe categories are ordered: a higher level means more of what is measured.\nDecision rules:\n- If unsure between two levels, choose the lower one.\n\nCategories (choose exactly one):\n- none (level 0): No uncivil language.\n  Example: \"Merci, très clair.\"\n- strong (level 1, قوي): Insults aimed at a person.\n  Example: \"You are an idiot.\" (A direct insult.)\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, strong. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      }
+     ],
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: golden, version 1.0\nLanguage of the texts: en\n\nVariable: severity\nDefinition: How strongly uncivil the comment is.\nThe categories are ordered: a higher level means more of what is measured.\nDecision rules:\n- If unsure between two levels, choose the lower one.\n\nCategories (choose exactly one):\n- none (level 0): No uncivil language.\n  Example: \"Merci, très clair.\"\n- strong (level 1, قوي): Insults aimed at a person.\n  Example: \"You are an idiot.\" (A direct insult.)\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, strong. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      },
+      {
+       "role": "assistant",
+       "content": "{\"code\": \"Not-A-Code\"}"
+      },
+      {
+       "role": "user",
+       "content": "That answer cannot be used: \"Not-A-Code\" is not one of the codes. Answer again with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: none, strong."
+      }
+     ]
+    ],
+    "missing_reasons": [
+     "None of the 2 answers could be used. The last one: \"Not-A-Code\" is not one of the codes."
+    ]
+   }
+  },
+  {
+   "name": "park-coverage",
+   "yaml": "name: park-coverage\nversion: \"2.1\"\ntitle: Coverage of the new city park\ndescription: How local news describes the new city park.\nunit_of_analysis: One news article.\nlanguage: en\ninstructions: Read the whole article before coding.\nvariables:\n  - name: stance\n    label: Stance toward the park\n    definition: Whether the article favors or opposes the park.\n    instructions: Judge the article, not the people it quotes.\n    decision_rules:\n      - If the article is balanced, code neutral.\n      - Ignore the headline when it disagrees with the body.\n    categories:\n      - code: favor\n        label: In favor\n        definition: The article presents the park as good for the city.\n        examples:\n          - The new park gives families a place to meet.\n      - code: oppose\n        definition: The article presents the park as a mistake.\n        examples:\n          - text: Residents say the park cost too much.\n            note: A cost complaint counts as opposition.\n      - code: neutral\n        definition: The article takes no side.\n  - name: prominence\n    label: How prominent the park is\n    definition: How much of the article is about the park.\n    type: ordinal\n    categories:\n      - code: \"1\"\n        label: A mention\n        definition: The park is mentioned in passing.\n        level: 1\n      - code: \"2\"\n        definition: The park is one of several subjects.\n        level: 2\n      - code: \"3\"\n        definition: The park is the main subject.\n        level: 3\n",
+   "content_hash": "sha256:bbd87d86965ba9bcb2d38f72a980d2b1b488ab79d9d008da2ba3110d5ffbbb60",
+   "prompts": [
+    {
+     "variable": "stance",
+     "system": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Coverage of the new city park, version 2.1\nAbout this codebook: How local news describes the new city park.\nUnit of analysis: One news article.\nLanguage of the texts: en\nGeneral instructions: Read the whole article before coding.\n\nVariable: stance (Stance toward the park)\nDefinition: Whether the article favors or opposes the park.\nInstructions: Judge the article, not the people it quotes.\nDecision rules:\n- If the article is balanced, code neutral.\n- Ignore the headline when it disagrees with the body.\n\nCategories (choose exactly one):\n- favor (In favor): The article presents the park as good for the city.\n  Example: \"The new park gives families a place to meet.\"\n- oppose: The article presents the park as a mistake.\n  Example: \"Residents say the park cost too much.\" (A cost complaint counts as opposition.)\n- neutral: The article takes no side.\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: favor, oppose, neutral. Write nothing else.",
+     "user_template": "Text to code:\n\n{text}",
+     "retry_template": "That answer cannot be used: {problem} Answer again with only a JSON object of the form {{\"code\": \"...\"}}, where the code is one of: {codes}.",
+     "json_schema": {
+      "type": "object",
+      "properties": {
+       "code": {
+        "type": "string",
+        "enum": [
+         "favor",
+         "oppose",
+         "neutral"
+        ]
+       }
+      },
+      "required": [
+       "code"
+      ],
+      "additionalProperties": false
+     },
+     "hash": "sha256:1afa3b391032448d6e243f34644b176842edffeca4cbc3adb29f9fb4078b7172",
+     "messages": [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Coverage of the new city park, version 2.1\nAbout this codebook: How local news describes the new city park.\nUnit of analysis: One news article.\nLanguage of the texts: en\nGeneral instructions: Read the whole article before coding.\n\nVariable: stance (Stance toward the park)\nDefinition: Whether the article favors or opposes the park.\nInstructions: Judge the article, not the people it quotes.\nDecision rules:\n- If the article is balanced, code neutral.\n- Ignore the headline when it disagrees with the body.\n\nCategories (choose exactly one):\n- favor (In favor): The article presents the park as good for the city.\n  Example: \"The new park gives families a place to meet.\"\n- oppose: The article presents the park as a mistake.\n  Example: \"Residents say the park cost too much.\" (A cost complaint counts as opposition.)\n- neutral: The article takes no side.\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: favor, oppose, neutral. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      }
+     ]
+    },
+    {
+     "variable": "prominence",
+     "system": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Coverage of the new city park, version 2.1\nAbout this codebook: How local news describes the new city park.\nUnit of analysis: One news article.\nLanguage of the texts: en\nGeneral instructions: Read the whole article before coding.\n\nVariable: prominence (How prominent the park is)\nDefinition: How much of the article is about the park.\nThe categories are ordered: a higher level means more of what is measured.\n\nCategories (choose exactly one):\n- 1 (level 1, A mention): The park is mentioned in passing.\n- 2 (level 2): The park is one of several subjects.\n- 3 (level 3): The park is the main subject.\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: 1, 2, 3. Write nothing else.",
+     "user_template": "Text to code:\n\n{text}",
+     "retry_template": "That answer cannot be used: {problem} Answer again with only a JSON object of the form {{\"code\": \"...\"}}, where the code is one of: {codes}.",
+     "json_schema": {
+      "type": "object",
+      "properties": {
+       "code": {
+        "type": "string",
+        "enum": [
+         "1",
+         "2",
+         "3"
+        ]
+       }
+      },
+      "required": [
+       "code"
+      ],
+      "additionalProperties": false
+     },
+     "hash": "sha256:d7c72e287fd9991b4eedbb891d6e23c8ac28b6f520b94d791ada5ccd400a3aaa",
+     "messages": [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Coverage of the new city park, version 2.1\nAbout this codebook: How local news describes the new city park.\nUnit of analysis: One news article.\nLanguage of the texts: en\nGeneral instructions: Read the whole article before coding.\n\nVariable: prominence (How prominent the park is)\nDefinition: How much of the article is about the park.\nThe categories are ordered: a higher level means more of what is measured.\n\nCategories (choose exactly one):\n- 1 (level 1, A mention): The park is mentioned in passing.\n- 2 (level 2): The park is one of several subjects.\n- 3 (level 3): The park is the main subject.\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: 1, 2, 3. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      }
+     ]
+    }
+   ],
+   "asked_again": {
+    "calls": [
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Coverage of the new city park, version 2.1\nAbout this codebook: How local news describes the new city park.\nUnit of analysis: One news article.\nLanguage of the texts: en\nGeneral instructions: Read the whole article before coding.\n\nVariable: stance (Stance toward the park)\nDefinition: Whether the article favors or opposes the park.\nInstructions: Judge the article, not the people it quotes.\nDecision rules:\n- If the article is balanced, code neutral.\n- Ignore the headline when it disagrees with the body.\n\nCategories (choose exactly one):\n- favor (In favor): The article presents the park as good for the city.\n  Example: \"The new park gives families a place to meet.\"\n- oppose: The article presents the park as a mistake.\n  Example: \"Residents say the park cost too much.\" (A cost complaint counts as opposition.)\n- neutral: The article takes no side.\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: favor, oppose, neutral. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      }
+     ],
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Coverage of the new city park, version 2.1\nAbout this codebook: How local news describes the new city park.\nUnit of analysis: One news article.\nLanguage of the texts: en\nGeneral instructions: Read the whole article before coding.\n\nVariable: stance (Stance toward the park)\nDefinition: Whether the article favors or opposes the park.\nInstructions: Judge the article, not the people it quotes.\nDecision rules:\n- If the article is balanced, code neutral.\n- Ignore the headline when it disagrees with the body.\n\nCategories (choose exactly one):\n- favor (In favor): The article presents the park as good for the city.\n  Example: \"The new park gives families a place to meet.\"\n- oppose: The article presents the park as a mistake.\n  Example: \"Residents say the park cost too much.\" (A cost complaint counts as opposition.)\n- neutral: The article takes no side.\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: favor, oppose, neutral. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      },
+      {
+       "role": "assistant",
+       "content": "I think it is positive."
+      },
+      {
+       "role": "user",
+       "content": "That answer cannot be used: The answer is not a JSON object: \"I think it is positive.\". Answer again with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: favor, oppose, neutral."
+      }
+     ],
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Coverage of the new city park, version 2.1\nAbout this codebook: How local news describes the new city park.\nUnit of analysis: One news article.\nLanguage of the texts: en\nGeneral instructions: Read the whole article before coding.\n\nVariable: prominence (How prominent the park is)\nDefinition: How much of the article is about the park.\nThe categories are ordered: a higher level means more of what is measured.\n\nCategories (choose exactly one):\n- 1 (level 1, A mention): The park is mentioned in passing.\n- 2 (level 2): The park is one of several subjects.\n- 3 (level 3): The park is the main subject.\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: 1, 2, 3. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      }
+     ],
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Coverage of the new city park, version 2.1\nAbout this codebook: How local news describes the new city park.\nUnit of analysis: One news article.\nLanguage of the texts: en\nGeneral instructions: Read the whole article before coding.\n\nVariable: prominence (How prominent the park is)\nDefinition: How much of the article is about the park.\nThe categories are ordered: a higher level means more of what is measured.\n\nCategories (choose exactly one):\n- 1 (level 1, A mention): The park is mentioned in passing.\n- 2 (level 2): The park is one of several subjects.\n- 3 (level 3): The park is the main subject.\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: 1, 2, 3. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      },
+      {
+       "role": "assistant",
+       "content": "I think it is positive."
+      },
+      {
+       "role": "user",
+       "content": "That answer cannot be used: The answer is not a JSON object: \"I think it is positive.\". Answer again with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: 1, 2, 3."
+      }
+     ]
+    ],
+    "json_schemas": [
+     {
+      "type": "object",
+      "properties": {
+       "code": {
+        "type": "string",
+        "enum": [
+         "favor",
+         "oppose",
+         "neutral"
+        ]
+       }
+      },
+      "required": [
+       "code"
+      ],
+      "additionalProperties": false
+     },
+     {
+      "type": "object",
+      "properties": {
+       "code": {
+        "type": "string",
+        "enum": [
+         "favor",
+         "oppose",
+         "neutral"
+        ]
+       }
+      },
+      "required": [
+       "code"
+      ],
+      "additionalProperties": false
+     },
+     {
+      "type": "object",
+      "properties": {
+       "code": {
+        "type": "string",
+        "enum": [
+         "1",
+         "2",
+         "3"
+        ]
+       }
+      },
+      "required": [
+       "code"
+      ],
+      "additionalProperties": false
+     },
+     {
+      "type": "object",
+      "properties": {
+       "code": {
+        "type": "string",
+        "enum": [
+         "1",
+         "2",
+         "3"
+        ]
+       }
+      },
+      "required": [
+       "code"
+      ],
+      "additionalProperties": false
+     }
+    ],
+    "prompt_hashes": [
+     "sha256:1afa3b391032448d6e243f34644b176842edffeca4cbc3adb29f9fb4078b7172",
+     "sha256:d7c72e287fd9991b4eedbb891d6e23c8ac28b6f520b94d791ada5ccd400a3aaa"
+    ],
+    "codes": [
+     "favor",
+     "1"
+    ]
+   },
+   "missing": {
+    "calls": [
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Coverage of the new city park, version 2.1\nAbout this codebook: How local news describes the new city park.\nUnit of analysis: One news article.\nLanguage of the texts: en\nGeneral instructions: Read the whole article before coding.\n\nVariable: stance (Stance toward the park)\nDefinition: Whether the article favors or opposes the park.\nInstructions: Judge the article, not the people it quotes.\nDecision rules:\n- If the article is balanced, code neutral.\n- Ignore the headline when it disagrees with the body.\n\nCategories (choose exactly one):\n- favor (In favor): The article presents the park as good for the city.\n  Example: \"The new park gives families a place to meet.\"\n- oppose: The article presents the park as a mistake.\n  Example: \"Residents say the park cost too much.\" (A cost complaint counts as opposition.)\n- neutral: The article takes no side.\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: favor, oppose, neutral. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      }
+     ],
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Coverage of the new city park, version 2.1\nAbout this codebook: How local news describes the new city park.\nUnit of analysis: One news article.\nLanguage of the texts: en\nGeneral instructions: Read the whole article before coding.\n\nVariable: stance (Stance toward the park)\nDefinition: Whether the article favors or opposes the park.\nInstructions: Judge the article, not the people it quotes.\nDecision rules:\n- If the article is balanced, code neutral.\n- Ignore the headline when it disagrees with the body.\n\nCategories (choose exactly one):\n- favor (In favor): The article presents the park as good for the city.\n  Example: \"The new park gives families a place to meet.\"\n- oppose: The article presents the park as a mistake.\n  Example: \"Residents say the park cost too much.\" (A cost complaint counts as opposition.)\n- neutral: The article takes no side.\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: favor, oppose, neutral. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      },
+      {
+       "role": "assistant",
+       "content": "{\"code\": \"Not-A-Code\"}"
+      },
+      {
+       "role": "user",
+       "content": "That answer cannot be used: \"Not-A-Code\" is not one of the codes. Answer again with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: favor, oppose, neutral."
+      }
+     ],
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Coverage of the new city park, version 2.1\nAbout this codebook: How local news describes the new city park.\nUnit of analysis: One news article.\nLanguage of the texts: en\nGeneral instructions: Read the whole article before coding.\n\nVariable: prominence (How prominent the park is)\nDefinition: How much of the article is about the park.\nThe categories are ordered: a higher level means more of what is measured.\n\nCategories (choose exactly one):\n- 1 (level 1, A mention): The park is mentioned in passing.\n- 2 (level 2): The park is one of several subjects.\n- 3 (level 3): The park is the main subject.\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: 1, 2, 3. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      }
+     ],
+     [
+      {
+       "role": "system",
+       "content": "You are a careful coder in a quantitative content analysis. Code one variable for the text you are given, following the codebook below exactly.\n\nCodebook: Coverage of the new city park, version 2.1\nAbout this codebook: How local news describes the new city park.\nUnit of analysis: One news article.\nLanguage of the texts: en\nGeneral instructions: Read the whole article before coding.\n\nVariable: prominence (How prominent the park is)\nDefinition: How much of the article is about the park.\nThe categories are ordered: a higher level means more of what is measured.\n\nCategories (choose exactly one):\n- 1 (level 1, A mention): The park is mentioned in passing.\n- 2 (level 2): The park is one of several subjects.\n- 3 (level 3): The park is the main subject.\n\nAnswer with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: 1, 2, 3. Write nothing else."
+      },
+      {
+       "role": "user",
+       "content": "Text to code:\n\nThe new park opened on Saturday, and families filled the lawns by noon. \"Finally,\" said one."
+      },
+      {
+       "role": "assistant",
+       "content": "{\"code\": \"Not-A-Code\"}"
+      },
+      {
+       "role": "user",
+       "content": "That answer cannot be used: \"Not-A-Code\" is not one of the codes. Answer again with only a JSON object of the form {\"code\": \"...\"}, where the code is one of: 1, 2, 3."
+      }
+     ]
+    ],
+    "missing_reasons": [
+     "None of the 2 answers could be used. The last one: \"Not-A-Code\" is not one of the codes.",
+     "None of the 2 answers could be used. The last one: \"Not-A-Code\" is not one of the codes."
+    ]
+   }
+  }
+ ]
+}

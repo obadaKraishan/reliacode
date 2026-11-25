@@ -59,6 +59,20 @@ def test_seed_and_token_limit_are_sent_when_set() -> None:
     assert (body["seed"], body["max_tokens"], body["temperature"]) == (7, 50, 0.2)
 
 
+def test_temperature_none_leaves_the_field_out_and_the_record_says_so() -> None:
+    server = FakeServer(ok())
+    response = backend_for(server, temperature=None).complete(MESSAGES)
+    assert server.body() == {"model": "tiny-model", "messages": MESSAGES, "stream": False}
+    assert response.parameters.temperature is None
+
+
+def test_the_default_temperature_is_still_zero_and_still_sent() -> None:
+    server = FakeServer(ok())
+    response = backend_for(server).complete(MESSAGES)
+    assert list(server.body()) == ["model", "messages", "temperature", "stream"]
+    assert response.parameters.temperature == 0.0
+
+
 def test_a_schema_is_sent_as_structured_output() -> None:
     server = FakeServer(ok())
     response = backend_for(server).complete(MESSAGES, json_schema=SCHEMA)

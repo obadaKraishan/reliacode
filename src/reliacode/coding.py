@@ -1,30 +1,36 @@
-"""Coding texts with a codebook: the prompt for each variable, the check of each answer, and
-:func:`code`, which codes every text for every variable with a backend.
+"""Coding texts with a codebook: the prompts, the check of each answer, and :func:`code`, which
+codes every text for every variable with a backend.
 
-Each variable gets its own prompt, built only from the codebook: the codebook's title,
-description, unit of analysis, language and instructions, then the variable's definition,
-instructions and decision rules, and each category with its code, label, level, definition and
-examples. The model is asked to answer with a JSON object, ``{"code": "..."}``.
+There are two recipes. By default each variable gets its own prompt and its own call (one call
+per variable), built only from the codebook: the codebook's title, description, unit of
+analysis, language and instructions, then the variable's definition, instructions and decision
+rules, and each category with its code, label, level, definition and examples. The model is
+asked to answer with a JSON object, ``{"code": "..."}``.
+
+With ``recipe="per_unit"``, one call per text asks for all the chosen variables at once, with
+the same parts of the codebook for each, and the answer is one JSON object with one code per
+variable. Rules across variables can be given with it (:class:`Rule`); they are stated in the
+prompt and checked in the answer.
 
 The prompt hash identifies the exact prompt, so it can be reported with the results, next to the
 codebook's content hash. It covers the prompt text, the templates used around each text and for
-a second try, the JSON Schema of the answer, and the version of this recipe.
+a second try, the JSON Schema of the answer, and the version of the recipe.
 """
 
 import hashlib
 import json
 import logging
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime
-from typing import Any, NamedTuple
+from typing import Any, Literal, NamedTuple
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from reliacode.backends import Backend, RequestParameters, Response, utc_now
 from reliacode.codebook import Codebook, Variable
 from reliacode.errors import describe
-from reliacode.ledger import BudgetError, Ledger, LedgerEntry
+from reliacode.ledger import BudgetError, Ledger, LedgerEntry, Outcome
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +56,27 @@ RETRY_TEMPLATE = (
     '{{"code": "..."}}, where the code is one of: {codes}.'
 )
 
+#: The two recipes: one call per variable (the default), or one call per text (unit) that asks
+#: for all the chosen variables together.
+Recipe = Literal["per_variable", "per_unit"]
+_RECIPES = ("per_variable", "per_unit")
+
+#: Version of the one-call-per-unit recipe. It is part of every unit prompt's hash. Bump it
+#: whenever the wording or layout of that prompt, its templates or its schema changes.
+UNIT_PROMPT_VERSION = 1
+#: The first lines of every prompt that asks for several variables in one call.
+UNIT_INSTRUCTION = (
+    "You are a careful coder in a quantitative content analysis. Code every variable below for "
+    "the text you are given, following the codebook below exactly."
+)
+#: The message sent after an answer that cannot be used as it is, before the model answers
+#: again. ``{problems}`` lists each problem on a line of its own; none quotes the text.
+UNIT_RETRY_TEMPLATE = (
+    "That answer cannot be used as it is:\n{problems}\nAnswer again with only a JSON object "
+    "with one field for each variable ({names}), each holding one of that variable's codes. "
+    "Write nothing else."
+)
+
 
 class _Record(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -67,6 +94,81 @@ class Prompt(_Record):
 
     def messages(self, text: str) -> list[dict[str, str]]:
         """The chat messages that ask for the code of ``text``."""
+        return [
+            {"role": "system", "content": self.system},
+            {"role": "user", "content": self.user_template.format(text=text)},
+        ]
+
+
+class Rule(_Record):
+    """A rule across variables, for one call per unit: a sentence for the prompt, the variables
+    it names, and a check on their codes.
+
+    Give rules with ``code(..., recipe="per_unit", rules=[...])``::
+
+        Rule(
+            text="Severity is none if and only if incivility_form is none.",
+            variables=["incivility_form", "severity"],
+            check=lambda codes: (codes["severity"] == "none")
+            == (codes["incivility_form"] == "none"),
+        )
+
+    The sentence is stated in the prompt, under "Rules across variables". The check gets the
+    codes of the variables the rule names, as a dict such as ``{"incivility_form": "none",
+    "severity": "none"}``, and returns ``True`` when they follow the rule. It is run only when
+    each of those variables has a valid code. When it returns ``False``, the model is asked
+    again; if the last answer still breaks the rule, the variables it names are missing and the
+    others keep their codes.
+
+    The prompt hash covers the sentence and the variables, but not the check's code, so keep the
+    check with your analysis script. Spaces and line breaks in the sentence are written as single
+    spaces.
+    """
+
+    text: str
+    variables: tuple[str, ...]
+    check: Callable[[dict[str, str]], bool] = Field(exclude=True, repr=False)
+
+    @field_validator("text")
+    @classmethod
+    def _one_sentence(cls, value: str) -> str:
+        value = " ".join(value.split())
+        if not value:
+            raise ValueError("give the rule as a sentence for the prompt")
+        return value
+
+    @field_validator("variables")
+    @classmethod
+    def _named(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if not value:
+            raise ValueError("name the variables the rule is about, such as ['form', 'severity']")
+        repeated = sorted({name for name in value if value.count(name) > 1})
+        if repeated:
+            raise ValueError(f'the variable "{repeated[0]}" is named more than once')
+        return value
+
+
+class UnitPrompt(_Record):
+    """The prompt that asks for several variables of one text in one call, with its hash.
+
+    It is used by the one-call-per-unit recipe (``code(..., recipe="per_unit")``).
+    ``variables`` are the variables asked, in order, and ``rules`` maps each rule's sentence to
+    the variables it names. The hash covers the prompt text, the templates, the JSON Schema, the
+    rules' sentences and variables, and the recipe's version.
+    """
+
+    recipe: Literal["per_unit"] = "per_unit"
+    recipe_version: int
+    variables: tuple[str, ...]
+    system: str
+    user_template: str
+    retry_template: str
+    json_schema: dict[str, Any]
+    rules: dict[str, tuple[str, ...]] = Field(default_factory=dict)
+    hash: str
+
+    def messages(self, text: str) -> list[dict[str, str]]:
+        """The chat messages that ask for every variable's code of ``text``."""
         return [
             {"role": "system", "content": self.system},
             {"role": "user", "content": self.user_template.format(text=text)},
@@ -113,10 +215,124 @@ def build_prompt(codebook: Codebook, variable: str) -> Prompt:
     )
 
 
+def unit_answer_schema(variables: Sequence[Variable]) -> dict[str, Any]:
+    """The JSON Schema of a valid answer that codes several variables at once: an object with
+    one field per variable, whose value is one of that variable's codes.
+
+    It follows the rules for strict structured output (every field required, no other fields).
+    """
+    return {
+        "type": "object",
+        "properties": {
+            variable.name: {"type": "string", "enum": list(variable.codes)}
+            for variable in variables
+        },
+        "required": [variable.name for variable in variables],
+        "additionalProperties": False,
+    }
+
+
+def build_unit_prompt(
+    codebook: Codebook,
+    variables: Sequence[str] | str | None = None,
+    rules: Sequence[Rule] | None = None,
+) -> UnitPrompt:
+    """The prompt that asks for all of ``codebook``'s variables (or the ones named) of a text in
+    one call, built from the codebook, with the rules across variables stated in it.
+
+    Raises:
+        KeyError: the codebook has no variable with a name given.
+        TypeError, ValueError: ``variables`` or ``rules`` are not as described in :func:`code`.
+    """
+    names = _variable_names(codebook, variables)
+    chosen = [codebook.variable(name) for name in names]
+    stated = _check_rules(rules, names)
+    system = _unit_system_text(codebook, chosen, stated)
+    schema = unit_answer_schema(chosen)
+    payload = {
+        "reliacode_prompt": UNIT_PROMPT_VERSION,
+        "recipe": "per_unit",
+        "system": system,
+        "user": USER_TEMPLATE,
+        "retry": UNIT_RETRY_TEMPLATE,
+        "json_schema": schema,
+        "rules": [[rule.text, list(rule.variables)] for rule in stated],
+    }
+    blob = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return UnitPrompt(
+        recipe_version=UNIT_PROMPT_VERSION,
+        variables=tuple(names),
+        system=system,
+        user_template=USER_TEMPLATE,
+        retry_template=UNIT_RETRY_TEMPLATE,
+        json_schema=schema,
+        rules={rule.text: rule.variables for rule in stated},
+        hash="sha256:" + hashlib.sha256(blob.encode("utf-8")).hexdigest(),
+    )
+
+
+def _check_rules(rules: object, names: Sequence[str]) -> tuple[Rule, ...]:
+    """The rules, checked against the variables asked, before any call is made."""
+    if rules is None:
+        return ()
+    shape = 'a list of Rule(text="...", variables=[...], check=...)'
+    if isinstance(rules, (str, bytes, Rule)) or not isinstance(rules, Sequence):
+        raise TypeError(f"rules should be {shape}, but it is {describe(rules)}.")
+    checked: list[Rule] = []
+    for number, rule in enumerate(rules, 1):
+        if not isinstance(rule, Rule):
+            raise TypeError(f"Rule {number} should be a Rule(...), but it is {describe(rule)}.")
+        for name in rule.variables:
+            if name not in names:
+                raise ValueError(
+                    f'Rule {number} ("{rule.text}") names "{name}", which is not among the '
+                    f"variables coded ({', '.join(names)}). Code that variable too, or leave the "
+                    "rule out."
+                )
+        for earlier, other in enumerate(checked, 1):
+            if other.text == rule.text:
+                raise ValueError(
+                    f"Rule {number} has the same sentence as rule {earlier}. Give each rule once."
+                )
+        checked.append(rule)
+    return tuple(checked)
+
+
+def _unit_system_text(
+    codebook: Codebook, variables: Sequence[Variable], rules: Sequence[Rule]
+) -> str:
+    lines = [UNIT_INSTRUCTION, "", *_codebook_lines(codebook)]
+    for variable in variables:
+        lines += _variable_lines(variable)
+    if rules:
+        lines += ["", "Rules across variables (the codes must follow every one):"]
+        lines += [f"- {rule.text}" for rule in rules]
+    form = json.dumps({variable.name: "..." for variable in variables}, ensure_ascii=False)
+    lines += ["", "Answer with only a JSON object with one field for each variable, in this form:"]
+    lines.append(form)
+    lines += [
+        f"The codes for {variable.name} are: {', '.join(variable.codes)}." for variable in variables
+    ]
+    lines.append("Write nothing else.")
+    return "\n".join(lines)
+
+
 def _system_text(codebook: Codebook, variable: Variable) -> str:
+    lines = [INSTRUCTION, "", *_codebook_lines(codebook), *_variable_lines(variable)]
+    codes = ", ".join(variable.codes)
+    lines += [
+        "",
+        f'Answer with only a JSON object of the form {{"code": "..."}}, where the code is one '
+        f"of: {codes}. Write nothing else.",
+    ]
+    return "\n".join(lines)
+
+
+def _codebook_lines(codebook: Codebook) -> list[str]:
+    """The codebook's title and version, then its description, unit, language and instructions."""
     title = codebook.title or codebook.name
     version = f", version {codebook.version}" if codebook.version else ""
-    lines = [INSTRUCTION, "", f"Codebook: {title}{version}"]
+    lines = [f"Codebook: {title}{version}"]
     for heading, value in (
         ("About this codebook", codebook.description),
         ("Unit of analysis", codebook.unit_of_analysis),
@@ -125,9 +341,14 @@ def _system_text(codebook: Codebook, variable: Variable) -> str:
     ):
         if value:
             lines.append(f"{heading}: {value}")
+    return lines
 
+
+def _variable_lines(variable: Variable) -> list[str]:
+    """A blank line, the variable with its definition, instructions and decision rules, then a
+    blank line and its categories with their examples."""
     label = f" ({variable.label})" if variable.label else ""
-    lines += ["", f"Variable: {variable.name}{label}", f"Definition: {variable.definition}"]
+    lines = ["", f"Variable: {variable.name}{label}", f"Definition: {variable.definition}"]
     if variable.type == "ordinal":
         lines.append("The categories are ordered: a higher level means more of what is measured.")
     if variable.instructions:
@@ -145,14 +366,7 @@ def _system_text(codebook: Codebook, variable: Variable) -> str:
         for example in category.examples:
             note = f" ({example.note})" if example.note else ""
             lines.append(f'  Example: "{example.text}"{note}')
-
-    codes = ", ".join(variable.codes)
-    lines += [
-        "",
-        f'Answer with only a JSON object of the form {{"code": "..."}}, where the code is one '
-        f"of: {codes}. Write nothing else.",
-    ]
-    return "\n".join(lines)
+    return lines
 
 
 def check_answer(text: str, codes: Sequence[str]) -> tuple[str | None, str | None]:
@@ -168,29 +382,60 @@ def check_answer(text: str, codes: Sequence[str]) -> tuple[str | None, str | Non
         ``(code, None)`` for a valid answer, or ``(None, problem)``, where ``problem`` says in
         plain words what is wrong with the answer.
     """
-    cleaned = _THINKING.sub("", text).strip()
-    fence = _FENCE.match(cleaned)
-    if fence:
-        cleaned = fence.group(1).strip()
+    value, problem, _ = _check(text, codes)
+    return value, problem
+
+
+def _check(text: str, codes: Sequence[str]) -> tuple[str | None, str | None, str | None]:
+    """:func:`check_answer`, plus the kind of problem in words that quote nothing from the
+    answer, for the log."""
+    cleaned = _cleaned(text)
     if not cleaned:
-        return None, "The answer is empty."
+        return None, "The answer is empty.", "the answer is empty"
     try:
         data = json.loads(cleaned)
     except ValueError:
-        return None, f"The answer is not a JSON object: {_quoted(cleaned)}."
+        return (
+            None,
+            f"The answer is not a JSON object: {_quoted(cleaned)}.",
+            "the answer is not a JSON object",
+        )
     if not isinstance(data, dict):
-        return None, f'The answer is not a JSON object with a "code" field: {_quoted(cleaned)}.'
+        return (
+            None,
+            f'The answer is not a JSON object with a "code" field: {_quoted(cleaned)}.',
+            'the answer is not a JSON object with a "code" field',
+        )
     if "code" not in data:
-        return None, f'The answer has no "code" field: {_quoted(cleaned)}.'
+        return (
+            None,
+            f'The answer has no "code" field: {_quoted(cleaned)}.',
+            'the answer has no "code" field',
+        )
     value = data["code"]
     if isinstance(value, int) and not isinstance(value, bool):
         value = str(value)
     if not isinstance(value, str):
-        return None, f'The "code" in the answer is not text: {_quoted(json.dumps(value))}.'
+        return (
+            None,
+            f'The "code" in the answer is not text: {_quoted(json.dumps(value))}.',
+            'the "code" in the answer is not text',
+        )
     value = value.strip()
     if value not in codes:
-        return None, f"{_quoted(value)} is not one of the codes."
-    return value, None
+        return (
+            None,
+            f"{_quoted(value)} is not one of the codes.",
+            "the code in the answer is not one of the codes",
+        )
+    return value, None, None
+
+
+def _cleaned(text: str) -> str:
+    """An answer without a thinking block before it or a code fence around it."""
+    cleaned = _THINKING.sub("", text).strip()
+    fence = _FENCE.match(cleaned)
+    return fence.group(1).strip() if fence else cleaned
 
 
 def _quoted(text: str) -> str:
@@ -198,6 +443,95 @@ def _quoted(text: str) -> str:
     if len(short) > _QUOTE:
         short = short[: _QUOTE - 3] + "..."
     return f'"{short}"'
+
+
+class _UnitAnswer(NamedTuple):
+    """What one answer for several variables gave: the usable codes, why each other variable
+    cannot be used, each problem once for the second ask, and the kinds of problem for the log.
+    None of these words quotes the answer or the text."""
+
+    codes: dict[str, str]
+    problems: dict[str, str]
+    retry: list[str]
+    kinds: list[str]
+
+
+def _check_unit(
+    text: str, variables: Sequence[Variable], rules: Sequence[Rule] = ()
+) -> _UnitAnswer:
+    """Read every variable's code from an answer that should be one JSON object with one field
+    per variable, then check the rules. The same leniency as :func:`check_answer` applies to
+    each code. A broken rule makes the variables it names unusable."""
+    cleaned = _cleaned(text)
+    data: object = None
+    if cleaned:
+        try:
+            data = json.loads(cleaned)
+        except ValueError:
+            data = None
+    if not isinstance(data, dict):
+        problem, kind = (
+            ("The answer is not a JSON object.", "the answer is not a JSON object")
+            if cleaned
+            else ("The answer is empty.", "the answer is empty")
+        )
+        every = {variable.name: problem for variable in variables}
+        return _UnitAnswer({}, every, [problem], [kind])
+    answer = _UnitAnswer({}, {}, [], [])
+    for variable in variables:
+        name = variable.name
+        value = data.get(name)
+        if isinstance(value, int) and not isinstance(value, bool):
+            value = str(value)
+        if name not in data:
+            problem, kind = f'The answer has no field for "{name}".', f"no field for {name}"
+        elif not isinstance(value, str):
+            problem = f'The value for "{name}" is not text.'
+            kind = f"the value for {name} is not text"
+        elif value.strip() not in variable.codes:
+            codes = ", ".join(variable.codes)
+            problem = f'The code for "{name}" is not one of its codes: {codes}.'
+            kind = f"the code for {name} is not one of its codes"
+        else:
+            answer.codes[name] = value.strip()
+            continue
+        answer.problems[name] = problem
+        answer.retry.append(problem)
+        answer.kinds.append(kind)
+    broken = [
+        (number, rule)
+        for number, rule in enumerate(rules, 1)
+        if all(name in answer.codes for name in rule.variables)
+        and not _follows(number, rule, {name: answer.codes[name] for name in rule.variables})
+    ]
+    for number, rule in broken:
+        problem = f"The codes break this rule: {rule.text}"
+        answer.retry.append(problem)
+        answer.kinds.append(f"rule {number} is broken")
+        for name in rule.variables:
+            answer.codes.pop(name, None)
+            earlier = answer.problems.get(name)
+            answer.problems[name] = f"{earlier} {problem}" if earlier else problem
+    return answer
+
+
+def _follows(number: int, rule: Rule, codes: dict[str, str]) -> bool:
+    """Run a rule's check on the codes of the variables it names."""
+    try:
+        kept = rule.check(dict(codes))
+    except Exception as error:
+        example = json.dumps(dict.fromkeys(rule.variables, "..."))
+        raise ValueError(
+            f'The check of rule {number} ("{rule.text}") failed with {type(error).__name__}: '
+            f"{error}. A check gets the codes of the variables the rule names, as a dict such as "
+            f"{example}, and returns True when they follow the rule."
+        ) from error
+    if not isinstance(kept, bool):
+        raise TypeError(
+            f'The check of rule {number} ("{rule.text}") should return True or False, but it '
+            f"returned {describe(kept)}."
+        )
+    return kept
 
 
 #: A text's id: its position in a list, or its key in a mapping.
@@ -251,16 +585,22 @@ class CodingResult(_Record):
 
 
 class CodingRun(_Record):
-    """Everything one call of :func:`code` produced: the results, the prompts and what was used."""
+    """Everything one call of :func:`code` produced: the results, the prompts and what was used.
+
+    ``recipe`` says how the texts were asked: ``"per_variable"`` (one call per variable, with
+    one :class:`Prompt` per variable) or ``"per_unit"`` (one call per text for all the variables,
+    with one :class:`UnitPrompt`). Either way there is one result per text and variable.
+    """
 
     codebook_name: str
     codebook_version: str | None = None
     codebook_hash: str
-    prompts: tuple[Prompt, ...]
+    prompts: tuple[Prompt | UnitPrompt, ...]
     results: tuple[CodingResult, ...]
     started_at: datetime
     finished_at: datetime
     reliacode_version: str
+    recipe: Recipe = "per_variable"
 
     def table(self) -> list[dict[str, UnitId | str | None]]:
         """One row per text, in the order given: the text's id under ``"unit"``, then one column
@@ -286,14 +626,26 @@ def code(
     variables: Sequence[str] | str | None = None,
     attempts: int = 2,
     ledger: Ledger | None = None,
+    recipe: Recipe = "per_variable",
+    rules: Sequence[Rule] | None = None,
 ) -> CodingRun:
     """Code every text for every variable of the codebook (or the ones named) with ``backend``.
 
-    Each text is coded for one variable at a time, with that variable's prompt
+    By default each text is coded for one variable at a time, with that variable's prompt
     (:func:`build_prompt`), and each answer is checked against the variable's codes
     (:func:`check_answer`). When an answer cannot be used, the model is shown its answer and the
     reason and asked again, up to ``attempts`` answers in all. If none can be used, the result's
     code is ``None``, with the reason and every raw answer kept.
+
+    With ``recipe="per_unit"``, one call per text asks for all the variables together
+    (:func:`build_unit_prompt`), and the answer must be one JSON object with one code per
+    variable, each checked against its variable's codes. An answer that cannot be used as it is
+    gets one more ask (with ``attempts=2``) that names each problem without quoting the text.
+    The last answer decides: a variable it gives no usable code for is missing, with the reason,
+    and the other variables keep their codes. There is still one result per text and variable.
+    Rules across variables (:class:`Rule`) are stated in the prompt and checked in each answer;
+    a broken rule is asked again, and if the last answer still breaks it, the variables it names
+    are missing.
 
     Args:
         codebook: the codebook to code with, from :func:`reliacode.load_codebook`.
@@ -306,7 +658,12 @@ def code(
         attempts: the most answers to ask for, for each text and variable. The default, 2,
             allows one more try after an answer that cannot be used.
         ledger: a :class:`~reliacode.Ledger` that records every call, including second asks
-            and failures, and keeps its budget. Without one, nothing is recorded.
+            and failures, and keeps its budget. Without one, nothing is recorded. With one call
+            per text, a line's ``variable`` names every variable asked, joined by ``+``.
+        recipe: ``"per_variable"`` (the default: one call per variable) or ``"per_unit"`` (one
+            call per text, for all the variables together).
+        rules: rules across variables, as a list of :class:`Rule`, for ``recipe="per_unit"``
+            only. Each names only variables that are coded.
 
     Raises:
         BackendError: the backend could not answer, for example because no server is running.
@@ -314,8 +671,9 @@ def code(
         BudgetError: the ledger's budget refused a call. The run stops before that call, and
             the error's ``run`` holds the results finished before the stop. A cost limit for
             a model with no price is refused before the first call, with no ``run``.
-        TypeError, ValueError: ``texts``, ``variables``, ``attempts`` or ``ledger`` are not as
-            described.
+        TypeError, ValueError: ``texts``, ``variables``, ``attempts``, ``ledger``, ``recipe``
+            or ``rules`` are not as described, or a rule's check fails or does not return True
+            or False.
     """
     if not isinstance(codebook, Codebook):
         raise TypeError(
@@ -335,9 +693,27 @@ def code(
             'ledger should be a reliacode Ledger, such as Ledger("ledger.jsonl"), but it is '
             f"{describe(ledger)}."
         )
+    if recipe not in _RECIPES:
+        shown = repr(recipe) if isinstance(recipe, str) else describe(recipe)
+        raise ValueError(
+            'recipe should be "per_variable" (one call per variable, the default) or "per_unit" '
+            f"(one call per text, for all the variables together), but it is {shown}."
+        )
+    if recipe == "per_variable" and rules:
+        raise ValueError(
+            "rules are checked only when one call asks for all the variables together: use "
+            'recipe="per_unit" with them. With one call per variable, the model never sees its '
+            "answers for the other variables."
+        )
     units = _units(texts)
     names = _variable_names(codebook, variables)
-    prompts = {name: build_prompt(codebook, name) for name in names}
+    prompts: dict[str, Prompt | UnitPrompt]
+    if recipe == "per_unit":
+        stated = _check_rules(rules, names)
+        unit_prompt = build_unit_prompt(codebook, names, stated)
+        prompts = {"+".join(names): unit_prompt}
+    else:
+        prompts = {name: build_prompt(codebook, name) for name in names}
     codebook_hash = codebook.content_hash()
     model = getattr(backend, "model", None)
     model = model if isinstance(model, str) else None
@@ -347,21 +723,29 @@ def code(
     results: list[CodingResult] = []
     try:
         for unit, text in units:
+            if recipe == "per_unit":
+                chosen = tuple(codebook.variable(name) for name in names)
+                unit_work = _UnitWork(chosen, stated, unit_prompt, codebook_hash, ledger, model)
+                results.extend(_code_unit(backend, unit_work, unit, text, attempts))
+                continue
             for name in names:
-                work = _Work(codebook.variable(name), prompts[name], codebook_hash, ledger, model)
+                prompt = prompts[name]
+                assert isinstance(prompt, Prompt)
+                work = _Work(codebook.variable(name), prompt, codebook_hash, ledger, model)
                 results.append(_code_one(backend, work, unit, text, attempts))
     except BudgetError as error:
-        error.run = _run(codebook, codebook_hash, prompts, results, started)
+        error.run = _run(codebook, codebook_hash, prompts, results, started, recipe)
         raise
-    return _run(codebook, codebook_hash, prompts, results, started)
+    return _run(codebook, codebook_hash, prompts, results, started, recipe)
 
 
 def _run(
     codebook: Codebook,
     codebook_hash: str,
-    prompts: Mapping[str, Prompt],
+    prompts: Mapping[str, Prompt | UnitPrompt],
     results: Sequence[CodingResult],
     started: datetime,
+    recipe: Recipe,
 ) -> CodingRun:
     from reliacode import __version__  # here, because the package imports this module
 
@@ -374,6 +758,7 @@ def _run(
         started_at=started,
         finished_at=utc_now(),
         reliacode_version=__version__,
+        recipe=recipe,
     )
 
 
@@ -386,6 +771,63 @@ class _Work(NamedTuple):
     ledger: Ledger | None
     model: str | None
 
+    @property
+    def label(self) -> str:
+        """The variable's name, for the ledger line."""
+        return self.variable.name
+
+
+class _UnitWork(NamedTuple):
+    """What every call for one text shares when all its variables are asked together."""
+
+    variables: tuple[Variable, ...]
+    rules: tuple[Rule, ...]
+    prompt: UnitPrompt
+    codebook_hash: str
+    ledger: Ledger | None
+    model: str | None
+
+    @property
+    def label(self) -> str:
+        """Every variable asked, joined by "+" (a variable's name cannot hold one)."""
+        return "+".join(variable.name for variable in self.variables)
+
+
+def _ask(
+    backend: Backend,
+    messages: list[dict[str, str]],
+    work: _Work | _UnitWork,
+    text: str,
+    attempt: int,
+) -> Response:
+    """One call: the budget is checked first, and a call that fails is recorded before the
+    error goes on."""
+    ledger = work.ledger
+    if ledger is not None:
+        ledger.check()
+    try:
+        response = backend.complete(messages, json_schema=work.prompt.json_schema)
+        if not isinstance(response, Response):
+            raise TypeError(
+                "The backend's complete() should return a reliacode Response, but it "
+                f"returned {describe(response)}."
+            )
+    except Exception as error:
+        if ledger is not None:
+            ledger.record(
+                LedgerEntry.from_failure(
+                    error, model=work.model, text=text, ask=attempt, **_ties(work, ledger)
+                )
+            )
+        raise
+    return response
+
+
+def _outcome(usable: bool, attempt: int, attempts: int) -> Outcome:
+    if usable:
+        return "answered"
+    return "asked_again" if attempt < attempts else "missing"
+
 
 def _code_one(
     backend: Backend, work: _Work, unit: UnitId, text: str, attempts: int
@@ -396,34 +838,12 @@ def _code_one(
     responses: list[Response] = []
     problem: str | None = None
     for attempt in range(1, attempts + 1):
-        if ledger is not None:
-            ledger.check()
-        try:
-            response = backend.complete(messages, json_schema=prompt.json_schema)
-            if not isinstance(response, Response):
-                raise TypeError(
-                    "The backend's complete() should return a reliacode Response, but it "
-                    f"returned {describe(response)}."
-                )
-        except Exception as error:
-            if ledger is not None:
-                ledger.record(
-                    LedgerEntry.from_failure(
-                        error, model=work.model, text=text, ask=attempt, **_ties(work, ledger)
-                    )
-                )
-            raise
+        response = _ask(backend, messages, work, text, attempt)
         responses.append(response)
         answers.append(response.text)
-        value, problem = check_answer(response.text, variable.codes)
+        value, problem, kind = _check(response.text, variable.codes)
         if ledger is not None:
-            outcome = (
-                "answered"
-                if value is not None
-                else "asked_again"
-                if attempt < attempts
-                else "missing"
-            )
+            outcome = _outcome(value is not None, attempt, attempts)
             ledger.record(
                 LedgerEntry.from_response(
                     response, outcome=outcome, text=text, ask=attempt, **_ties(work, ledger)
@@ -431,13 +851,14 @@ def _code_one(
             )
         if value is not None:
             break
+        # Only the kind of problem: an answer can echo the coded text, which may be private.
         logger.info(
-            "%s, variable %s: answer %d of %d cannot be used. %s",
+            "%s, variable %s: answer %d of %d cannot be used: %s.",
             _unit_name(unit),
             variable.name,
             attempt,
             attempts,
-            problem,
+            kind,
         )
         retry = prompt.retry_template.format(problem=problem, codes=", ".join(variable.codes))
         messages = [
@@ -466,10 +887,88 @@ def _code_one(
     )
 
 
-def _ties(work: _Work, ledger: Ledger) -> dict[str, Any]:
-    """What ties a ledger line to the work: the variable, the hashes and the time."""
+def _code_unit(
+    backend: Backend, work: _UnitWork, unit: UnitId, text: str, attempts: int
+) -> list[CodingResult]:
+    """Every variable of one text, from one call (and a second ask if the answer cannot be used
+    as it is). The last answer decides every code."""
+    prompt, ledger = work.prompt, work.ledger
+    messages = prompt.messages(text)
+    answers: list[str] = []
+    responses: list[Response] = []
+    for attempt in range(1, attempts + 1):
+        response = _ask(backend, messages, work, text, attempt)
+        responses.append(response)
+        answers.append(response.text)
+        try:
+            checked = _check_unit(response.text, work.variables, work.rules)
+        except Exception:
+            # A rule's check failed: the call was made, so it is recorded before the run stops.
+            if ledger is not None:
+                ledger.record(
+                    LedgerEntry.from_response(
+                        response, outcome="missing", text=text, ask=attempt, **_ties(work, ledger)
+                    )
+                )
+            raise
+        if ledger is not None:
+            outcome = _outcome(not checked.problems, attempt, attempts)
+            ledger.record(
+                LedgerEntry.from_response(
+                    response, outcome=outcome, text=text, ask=attempt, **_ties(work, ledger)
+                )
+            )
+        if not checked.problems:
+            break
+        # The kinds of problem name variables and codes only, never words of the answer.
+        logger.info(
+            "%s: answer %d of %d cannot be used as it is: %s.",
+            _unit_name(unit),
+            attempt,
+            attempts,
+            "; ".join(checked.kinds),
+        )
+        if attempt < attempts:
+            retry = prompt.retry_template.format(
+                problems="\n".join(f"- {problem}" for problem in checked.retry),
+                names=", ".join(prompt.variables),
+            )
+            messages = [
+                *messages,
+                {"role": "assistant", "content": response.text},
+                {"role": "user", "content": retry},
+            ]
+    results = []
+    for variable in work.variables:
+        name = variable.name
+        reason = None
+        if name not in checked.codes:
+            reason = (
+                f"The answer could not be used for this variable. {checked.problems[name]}"
+                if attempts == 1
+                else f"The last of the {attempts} answers could not be used for this variable. "
+                f"{checked.problems[name]}"
+            )
+        results.append(
+            CodingResult(
+                unit=unit,
+                variable=name,
+                code=checked.codes.get(name),
+                missing_reason=reason,
+                answers=tuple(answers),
+                responses=tuple(responses),
+                codebook_hash=work.codebook_hash,
+                prompt_hash=prompt.hash,
+            )
+        )
+    return results
+
+
+def _ties(work: _Work | _UnitWork, ledger: Ledger) -> dict[str, Any]:
+    """What ties a ledger line to the work: the variable (or variables), the hashes and the
+    time."""
     return {
-        "variable": work.variable.name,
+        "variable": work.label,
         "codebook_hash": work.codebook_hash,
         "prompt_hash": work.prompt.hash,
         "at": ledger.clock(),

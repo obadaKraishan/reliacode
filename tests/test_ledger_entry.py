@@ -61,7 +61,7 @@ def test_a_line_from_an_answer_keeps_what_the_call_used() -> None:
         ask=1,
         **WORK,
     )
-    assert entry.schema_version == LEDGER_VERSION == 1
+    assert entry.schema_version == LEDGER_VERSION == 2
     assert entry.outcome == "asked_again"
     assert entry.variable == "tone"
     assert entry.model_requested == "example-model-2026"

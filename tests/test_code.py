@@ -2,6 +2,7 @@
 
 import json
 import logging
+import secrets
 from datetime import timezone
 
 import httpx
@@ -161,9 +162,34 @@ def test_invalid_answers_are_logged(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.INFO, logger="reliacode")
     code(TONE, {"a7": TEXTS[0]}, backend=FakeBackend(["nope", POSITIVE]))
     assert caplog.messages == [
-        'The text "a7", variable tone: answer 1 of 2 cannot be used. The answer is not a JSON '
-        'object: "nope".'
+        'The text "a7", variable tone: answer 1 of 2 cannot be used: the answer is not a JSON '
+        "object."
     ]
+
+
+@pytest.mark.parametrize(
+    ("answer", "kind"),
+    [
+        ("Probably positive, given {mark}.", "the answer is not a JSON object"),
+        ('["{mark}"]', 'the answer is not a JSON object with a "code" field'),
+        ('{{"label": "{mark}"}}', 'the answer has no "code" field'),
+        ('{{"code": ["{mark}"]}}', 'the "code" in the answer is not text'),
+        ('{{"code": "{mark}"}}', "the code in the answer is not one of the codes"),
+    ],
+)
+def test_no_word_of_an_unusable_answer_is_logged(
+    answer: str, kind: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)  # every logger, at every level
+    mark = secrets.token_hex(12)
+    run = code(TONE, ["An invented text."], backend=FakeBackend([answer.format(mark=mark)] * 2))
+    assert [record.levelname for record in caplog.records] == ["INFO", "INFO"]
+    assert all(kind in message for message in caplog.messages)
+    logged = [f"{record.getMessage()} {record.args!r}" for record in caplog.records]
+    assert all(mark not in line for line in logged)
+    result = run.results[0]
+    assert mark in result.answers[0]  # the answer stays in the results, to check by hand
+    assert result.missing_reason is not None
 
 
 # Choosing variables ------------------------------------------------------------------------------

@@ -58,6 +58,7 @@ BACKEND_NAMES = [
     "RequestParameters",
     "Response",
     "code",
+    "Rule",
 ]
 
 LEDGER_NAMES = [
@@ -175,6 +176,8 @@ def test_code_keeps_its_parameters_and_adds_the_ledger_at_the_end() -> None:
         ("variables", "KEYWORD_ONLY", None),
         ("attempts", "KEYWORD_ONLY", 2),
         ("ledger", "KEYWORD_ONLY", None),
+        ("recipe", "KEYWORD_ONLY", "per_variable"),
+        ("rules", "KEYWORD_ONLY", None),
     ]
 
 
@@ -193,6 +196,7 @@ def test_the_backends_keep_their_parameters() -> None:
         ("transport", "KEYWORD_ONLY", None),
         ("sleep", "KEYWORD_ONLY", time.sleep),
         ("clock", "KEYWORD_ONLY", time.perf_counter),
+        ("extra_body", "KEYWORD_ONLY", None),
     ]
     assert parameters(FakeBackend.__init__) == [
         ("self", "POSITIONAL_OR_KEYWORD", EMPTY),
@@ -217,6 +221,7 @@ def test_the_backend_and_coding_records_keep_their_fields() -> None:
         "latency_seconds",
         "attempts",
         "created_at",
+        "reasoning_tokens",
     ]
     assert list(RequestParameters.model_fields) == [
         "endpoint",
@@ -225,6 +230,7 @@ def test_the_backend_and_coding_records_keep_their_fields() -> None:
         "seed",
         "max_tokens",
         "structured_output",
+        "extra_body",
     ]
     assert list(CodingResult.model_fields) == [
         "unit",
@@ -245,6 +251,7 @@ def test_the_backend_and_coding_records_keep_their_fields() -> None:
         "started_at",
         "finished_at",
         "reliacode_version",
+        "recipe",
     ]
 
 
