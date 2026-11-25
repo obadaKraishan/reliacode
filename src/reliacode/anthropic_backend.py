@@ -15,7 +15,7 @@ import os
 import re
 import time
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 import httpx
@@ -62,6 +62,8 @@ _MESSAGES_PATH = "/v1/messages"
 _DEFAULT_BASE_URL = "https://api.anthropic.com"
 #: Statuses worth another try, as Anthropic's errors page lists them for its own clients.
 _RETRY_STATUSES = {408, 409, 429}
+#: The cache's times to live that the Messages API offers (``cache_control.ttl``).
+_CACHE_TTLS = ("5m", "1h")
 
 
 class AnthropicBackend:
@@ -80,6 +82,12 @@ class AnthropicBackend:
             ``Authorization`` header, and is never stored, logged or shown in an error.
         max_tokens: the most tokens an answer may use. The Messages API needs a limit. On
             models that think before they answer, the thinking counts toward it, so leave room.
+        cache: ``"5m"`` or ``"1h"`` to cache the system prompt (the codebook part that every
+            call shares) for five minutes or one hour, or ``None`` (the default) for no caching.
+            The cache marker goes on the system prompt only, never on the text being coded, so
+            caching changes no prompt text and no prompt hash. A prompt shorter than the
+            model's minimum is not cached, and the API says nothing; reliacode logs a warning
+            when an answer shows that nothing was read from or written to the cache.
         temperature: the sampling temperature. The default, ``None``, sends none, and the record
             says none was sent. API version 2026-10-21 refuses a temperature on every model, so
             give one only with an older ``api_version`` and a model that takes it.
@@ -107,6 +115,7 @@ class AnthropicBackend:
         *,
         api_key_env: str = "ANTHROPIC_API_KEY",
         max_tokens: int = 4096,
+        cache: Literal["5m", "1h"] | None = None,
         temperature: float | None = None,
         extra_body: Mapping[str, Any] | None = None,
         base_url: str = _DEFAULT_BASE_URL,
@@ -130,6 +139,14 @@ class AnthropicBackend:
         if max_tokens is None:
             raise TypeError("max_tokens should be a whole number: the Messages API needs a limit.")
         self.max_tokens = max_tokens
+        if cache is not None and cache not in _CACHE_TTLS:
+            shown = repr(cache) if isinstance(cache, str) else type(cache).__name__
+            raise ValueError(
+                'cache should be "5m" (five minutes), "1h" (one hour) or None (no caching), '
+                f"the times to live the Messages API offers, but it is {shown}."
+            )
+        self.cache = cache
+        self._warned_uncached = False
         self.temperature = (
             None if temperature is None else _check_number("temperature", temperature, minimum=0)
         )
@@ -190,8 +207,14 @@ class AnthropicBackend:
         checked = check_messages(messages)
         system, conversation = _split_system(checked)
         body: dict[str, Any] = {"model": self.model, "max_tokens": self.max_tokens}
+        cached = None
         if system:
-            body["system"] = [{"type": "text", "text": text} for text in system]
+            blocks: list[dict[str, Any]] = [{"type": "text", "text": text} for text in system]
+            if self.cache is not None:
+                # On the shared part only: the last system block ends the cached prefix.
+                blocks[-1]["cache_control"] = {"type": "ephemeral", "ttl": self.cache}
+                cached = self.cache
+            body["system"] = blocks
         body["messages"] = conversation
         if self.temperature is not None:
             body["temperature"] = self.temperature
@@ -203,6 +226,7 @@ class AnthropicBackend:
             max_tokens=self.max_tokens,
             extra_body=self.extra_body,
             api_version=self.api_version,
+            cache=cached,
         )
         return body, parameters
 
@@ -346,6 +370,12 @@ class AnthropicBackend:
         uncached = _count(usage.get("input_tokens"))
         written = _count(usage.get("cache_creation_input_tokens"))
         read = _count(usage.get("cache_read_input_tokens"))
+        by_ttl = usage.get("cache_creation")
+        written_1h = (
+            _count(by_ttl.get("ephemeral_1h_input_tokens")) if isinstance(by_ttl, dict) else None
+        )
+        if parameters.cache is not None and written == 0 and read == 0:
+            self._warn_uncached()
         output = _count(usage.get("output_tokens"))
         # The whole input is the three counts together, as the API documents it.
         prompt = None if uncached is None else uncached + (written or 0) + (read or 0)
@@ -364,7 +394,20 @@ class AnthropicBackend:
             created_at=utc_now(),
             reasoning_tokens=_count(details.get("thinking_tokens")),
             cache_write_tokens=written,
+            cache_write_1h_tokens=written_1h,
             cache_read_tokens=read,
+        )
+
+    def _warn_uncached(self) -> None:
+        if self._warned_uncached:
+            return
+        self._warned_uncached = True
+        logger.warning(
+            "Nothing was read from or written to the prompt cache for model %s, although the "
+            "system prompt was marked for caching. A prompt shorter than the model's minimum "
+            "cacheable length is not cached, and the API gives no error: see Anthropic's prompt "
+            "caching page for the minimum. Calls are priced as uncached input.",
+            self.model,
         )
 
     # Errors -----------------------------------------------------------------------------------
