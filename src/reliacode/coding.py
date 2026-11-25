@@ -168,29 +168,60 @@ def check_answer(text: str, codes: Sequence[str]) -> tuple[str | None, str | Non
         ``(code, None)`` for a valid answer, or ``(None, problem)``, where ``problem`` says in
         plain words what is wrong with the answer.
     """
-    cleaned = _THINKING.sub("", text).strip()
-    fence = _FENCE.match(cleaned)
-    if fence:
-        cleaned = fence.group(1).strip()
+    value, problem, _ = _check(text, codes)
+    return value, problem
+
+
+def _check(text: str, codes: Sequence[str]) -> tuple[str | None, str | None, str | None]:
+    """:func:`check_answer`, plus the kind of problem in words that quote nothing from the
+    answer, for the log."""
+    cleaned = _cleaned(text)
     if not cleaned:
-        return None, "The answer is empty."
+        return None, "The answer is empty.", "the answer is empty"
     try:
         data = json.loads(cleaned)
     except ValueError:
-        return None, f"The answer is not a JSON object: {_quoted(cleaned)}."
+        return (
+            None,
+            f"The answer is not a JSON object: {_quoted(cleaned)}.",
+            "the answer is not a JSON object",
+        )
     if not isinstance(data, dict):
-        return None, f'The answer is not a JSON object with a "code" field: {_quoted(cleaned)}.'
+        return (
+            None,
+            f'The answer is not a JSON object with a "code" field: {_quoted(cleaned)}.',
+            'the answer is not a JSON object with a "code" field',
+        )
     if "code" not in data:
-        return None, f'The answer has no "code" field: {_quoted(cleaned)}.'
+        return (
+            None,
+            f'The answer has no "code" field: {_quoted(cleaned)}.',
+            'the answer has no "code" field',
+        )
     value = data["code"]
     if isinstance(value, int) and not isinstance(value, bool):
         value = str(value)
     if not isinstance(value, str):
-        return None, f'The "code" in the answer is not text: {_quoted(json.dumps(value))}.'
+        return (
+            None,
+            f'The "code" in the answer is not text: {_quoted(json.dumps(value))}.',
+            'the "code" in the answer is not text',
+        )
     value = value.strip()
     if value not in codes:
-        return None, f"{_quoted(value)} is not one of the codes."
-    return value, None
+        return (
+            None,
+            f"{_quoted(value)} is not one of the codes.",
+            "the code in the answer is not one of the codes",
+        )
+    return value, None, None
+
+
+def _cleaned(text: str) -> str:
+    """An answer without a thinking block before it or a code fence around it."""
+    cleaned = _THINKING.sub("", text).strip()
+    fence = _FENCE.match(cleaned)
+    return fence.group(1).strip() if fence else cleaned
 
 
 def _quoted(text: str) -> str:
@@ -415,7 +446,7 @@ def _code_one(
             raise
         responses.append(response)
         answers.append(response.text)
-        value, problem = check_answer(response.text, variable.codes)
+        value, problem, kind = _check(response.text, variable.codes)
         if ledger is not None:
             outcome = (
                 "answered"
@@ -431,13 +462,14 @@ def _code_one(
             )
         if value is not None:
             break
+        # Only the kind of problem: an answer can echo the coded text, which may be private.
         logger.info(
-            "%s, variable %s: answer %d of %d cannot be used. %s",
+            "%s, variable %s: answer %d of %d cannot be used: %s.",
             _unit_name(unit),
             variable.name,
             attempt,
             attempts,
-            problem,
+            kind,
         )
         retry = prompt.retry_template.format(problem=problem, codes=", ".join(variable.codes))
         messages = [
