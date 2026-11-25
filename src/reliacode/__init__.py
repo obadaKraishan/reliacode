@@ -11,6 +11,7 @@ from reliacode.backends import (
     RequestParameters,
     Response,
 )
+from reliacode.batches import BatchFailure, BatchInfo, BatchRun, code_in_batches
 from reliacode.codebook import (
     Category,
     Codebook,
@@ -52,6 +53,9 @@ __all__ = [
     "AnthropicBackend",
     "Backend",
     "BackendError",
+    "BatchFailure",
+    "BatchInfo",
+    "BatchRun",
     "Budget",
     "BudgetError",
     "Category",
@@ -79,6 +83,7 @@ __all__ = [
     "VariableReliability",
     "__version__",
     "code",
+    "code_in_batches",
     "codebook_reliability",
     "load_codebook",
     "parse_codebook",

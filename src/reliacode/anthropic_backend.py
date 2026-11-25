@@ -14,7 +14,7 @@ import logging
 import os
 import re
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
@@ -59,6 +59,9 @@ logger = logging.getLogger(__name__)
 API_VERSION = "2026-10-21"
 _API_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _MESSAGES_PATH = "/v1/messages"
+_BATCHES_PATH = "/v1/messages/batches"
+#: What a batch id looks like, so that only such a text is ever put into an address.
+_BATCH_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
 _DEFAULT_BASE_URL = "https://api.anthropic.com"
 #: Statuses worth another try, as Anthropic's errors page lists them for its own clients.
 _RETRY_STATUSES = {408, 409, 429}
@@ -201,6 +204,11 @@ class AnthropicBackend:
         return self.base_url + _MESSAGES_PATH
 
     @property
+    def batches_endpoint(self) -> str:
+        """The address of the Message Batches API (see :func:`reliacode.code_in_batches`)."""
+        return self.base_url + _BATCHES_PATH
+
+    @property
     def extra_body(self) -> dict[str, Any]:
         """A copy of the extra request fields sent with every request."""
         return json.loads(self._extra_body)
@@ -284,6 +292,85 @@ class AnthropicBackend:
 
     def _headers(self, key: str) -> dict[str, str]:
         return {"Authorization": f"Bearer {key}", "anthropic-version": self.api_version}
+
+    def _settings(self) -> dict[str, Any]:
+        """Every setting that changes what a request asks, for telling runs apart."""
+        return {
+            "base_url": self.base_url,
+            "model": self.model,
+            "api_version": self.api_version,
+            "max_tokens": self.max_tokens,
+            "cache": self.cache,
+            "thinking": self.thinking,
+            "effort": self.effort,
+            "structured_output": self.structured_output,
+            "temperature": self.temperature,
+            "extra_body": self.extra_body,
+        }
+
+    # Message Batches --------------------------------------------------------------------------
+
+    def _create_batch(self, requests: list[dict[str, Any]]) -> dict[str, Any]:
+        """Create one batch. A timeout or a broken connection is not tried again: the batch
+        may have been created before the answer was lost (the caller deals with that)."""
+        key = self._read_key()
+        url = self.batches_endpoint
+        answer, _, attempts = self._send(
+            "POST", url, key, body={"requests": requests}, retry_lost=False
+        )
+        if answer.status_code >= 300:
+            raise self._failed(answer, attempts, key)
+        data = self._json(answer, key)
+        _checked_batch_id(data.get("id"), url)
+        return data
+
+    def _get_batch(self, batch_id: str) -> dict[str, Any]:
+        """A batch's state, as the API gives it (asking is idempotent, so it is retried)."""
+        url = f"{self.batches_endpoint}/{_checked_batch_id(batch_id, self.batches_endpoint)}"
+        key = self._read_key()
+        answer, _, attempts = self._send("GET", url, key)
+        if answer.status_code == 404:
+            raise BackendError(
+                f"The API has no batch {batch_id} (status 404). Batches belong to the workspace "
+                "of the key that created them: check that the key is from the same workspace.",
+                reason="batch_not_found",
+                endpoint=url,
+                status=404,
+            )
+        if answer.status_code >= 300:
+            raise self._failed(answer, attempts, key)
+        return self._json(answer, key)
+
+    def _batch_results(self, batch_id: str) -> Iterator[dict[str, Any]]:
+        """Each line of an ended batch's results, read one at a time (results can be large).
+
+        The address is built from ``base_url``, never taken from the API's ``results_url``,
+        so the key only ever goes to the address you chose.
+        """
+        url = f"{self.batches_endpoint}/{_checked_batch_id(batch_id, self.batches_endpoint)}"
+        url += "/results"
+        key = self._read_key()
+        tries = (self.max_retries or 0) + 1
+        for attempt in range(1, tries + 1):
+            try:
+                with self._client.stream("GET", url, headers=self._headers(key)) as answer:
+                    if _worth_retrying(answer) and attempt < tries:
+                        answer.read()
+                        self._sleep(self._wait_before(attempt + 1, answer, key))
+                        continue
+                    if answer.status_code >= 300:
+                        answer.read()
+                        if answer.status_code == 404:
+                            raise _results_gone(batch_id, url)
+                        raise self._failed(answer, attempt, key)
+                    for line in answer.iter_lines():
+                        if line.strip():
+                            yield _result_line(line, url, key)
+                    return
+            except httpx.ConnectError as exc:
+                raise self._no_server(exc, key) from None
+            except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as exc:
+                raise self._gave_up(None, exc, 1, 0.0, key) from None
 
     # Sending ----------------------------------------------------------------------------------
 
@@ -658,6 +745,43 @@ def _worth_retrying(answer: httpx.Response) -> bool:
     if said == "false":
         return False
     return answer.status_code in _RETRY_STATUSES or answer.status_code >= 500
+
+
+def _checked_batch_id(batch_id: object, url: str) -> str:
+    if not isinstance(batch_id, str) or not _BATCH_ID.fullmatch(batch_id):
+        raise BackendError(
+            f"The API at {url} gave no batch id that can be used, or the id given is not one: a "
+            'batch id is letters, digits, "-" and "_", such as "msgbatch_01HkcTjaV5uDC8jWR4".',
+            reason="unexpected_answer",
+            endpoint=url,
+        )
+    return batch_id
+
+
+def _results_gone(batch_id: str, url: str) -> BackendError:
+    return BackendError(
+        f"The results of batch {batch_id} are no longer available. Anthropic keeps a batch's "
+        "results for 29 days after the batch is created. The ledger still holds a line for "
+        "each request whose result was recorded; the codes are in the run you saved.",
+        reason="batch_results_gone",
+        endpoint=url,
+    )
+
+
+def _result_line(line: str, url: str, key: str | None) -> dict[str, Any]:
+    try:
+        item = json.loads(line)
+    except ValueError:
+        item = None
+    if not isinstance(item, dict):
+        snippet = " ".join(_scrub(line, key)[:_SNIPPET].split())
+        raise BackendError(
+            f"A line of the batch results at {url} is not a JSON object. The line began: "
+            f'"{snippet}"',
+            reason="unexpected_answer",
+            endpoint=url,
+        )
+    return item
 
 
 def _url_of(answer: httpx.Response, fallback: str) -> str:

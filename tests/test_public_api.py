@@ -60,6 +60,10 @@ BACKEND_NAMES = [
     "code",
     "Rule",
     "AnthropicBackend",
+    "BatchFailure",
+    "BatchInfo",
+    "BatchRun",
+    "code_in_batches",
 ]
 
 LEDGER_NAMES = [
@@ -229,6 +233,38 @@ def test_the_anthropic_backend_keeps_its_parameters() -> None:
         ("sleep", "KEYWORD_ONLY", time.sleep),
         ("clock", "KEYWORD_ONLY", time.perf_counter),
     ]
+
+
+def test_code_in_batches_keeps_its_parameters_and_records() -> None:
+    from reliacode import BatchFailure, BatchInfo, BatchRun, code_in_batches
+
+    assert parameters(code_in_batches) == [
+        ("codebook", "POSITIONAL_OR_KEYWORD", EMPTY),
+        ("texts", "POSITIONAL_OR_KEYWORD", EMPTY),
+        ("backend", "KEYWORD_ONLY", EMPTY),
+        ("state", "KEYWORD_ONLY", EMPTY),
+        ("variables", "KEYWORD_ONLY", None),
+        ("attempts", "KEYWORD_ONLY", 2),
+        ("ledger", "KEYWORD_ONLY", None),
+        ("recipe", "KEYWORD_ONLY", "per_variable"),
+        ("rules", "KEYWORD_ONLY", None),
+        ("poll_every", "KEYWORD_ONLY", 60.0),
+        ("resubmit_failed", "KEYWORD_ONLY", False),
+        ("adopt_batch", "KEYWORD_ONLY", None),
+        ("resubmit_unconfirmed", "KEYWORD_ONLY", False),
+        ("report", "KEYWORD_ONLY", print),
+    ]
+    assert list(BatchRun.model_fields) == ["run", "batches", "failed", "submitted", "state"]
+    assert list(BatchFailure.model_fields) == [
+        "unit",
+        "variable",
+        "ask",
+        "batch_id",
+        "custom_id",
+        "reason",
+        "error_type",
+    ]
+    assert list(BatchInfo.model_fields)[:4] == ["batch_id", "ask", "requests", "submitted_at"]
 
 
 def test_the_backend_and_coding_records_keep_their_fields() -> None:
