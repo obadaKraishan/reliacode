@@ -137,6 +137,35 @@ def test_a_refused_schema_suggests_turning_structured_output_off() -> None:
 
 
 @pytest.mark.parametrize(
+    "message",
+    [
+        "`temperature` is deprecated for this model.",
+        "temperature is not supported with this model",
+        "Unsupported parameter: 'temperature' is not supported with this model.",
+    ],
+)
+def test_a_refused_temperature_suggests_leaving_it_out(message: str) -> None:
+    error = fail(refused(400, {"error": {"message": message}}))
+    assert (error.reason, error.status) == ("bad_request", 400)
+    assert "temperature=None, and the field is left out of the request" in str(error)
+    assert message in str(error)
+
+
+def test_a_message_about_temperature_is_not_read_as_a_missing_model() -> None:
+    message = "Invalid value for temperature with this model: 5"
+    error = fail(refused(400, {"error": {"message": message}}))
+    assert error.reason == "bad_request"
+    assert message in str(error)
+
+
+def test_without_a_temperature_there_is_no_temperature_hint() -> None:
+    message = "`temperature` is deprecated for this model."
+    error = fail(refused(400, {"error": {"message": message}}), temperature=None)
+    assert error.reason == "bad_request"
+    assert "temperature=None" not in str(error)
+
+
+@pytest.mark.parametrize(
     ("answer", "said"),
     [
         (refused(422, {"detail": "temperature must be at most 2"}), "temperature must be at most"),
@@ -151,6 +180,7 @@ def test_a_bad_request_quotes_the_server(answer: httpx.Response, said: str) -> N
     assert f"refused the request (status {answer.status_code})" in str(error)
     assert said in str(error)
     assert "structured_output" not in str(error)
+    assert "temperature=None" not in str(error)
 
 
 def test_a_refusal_without_a_reason_says_so() -> None:

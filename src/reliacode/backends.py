@@ -307,6 +307,13 @@ _MISSING_WORDS = re.compile(
     re.IGNORECASE,
 )
 _SCHEMA_WORDS = re.compile(r"response_format|json_schema|structured|schema", re.IGNORECASE)
+#: Words with which servers say that a model does not take a temperature at all.
+_TEMPERATURE_WORD = re.compile(r"\btemperature\b", re.IGNORECASE)
+_REFUSED_WORDS = re.compile(
+    r"deprecated|not supported|unsupported|does not support|not allowed|not permitted|"
+    r"no longer|cannot be used|not available",
+    re.IGNORECASE,
+)
 #: Waits between tries: 1, 2, 4, ... seconds, never more than 30.
 _FIRST_WAIT = 1.0
 _LONGEST_WAIT = 30.0
@@ -334,7 +341,9 @@ class OpenAICompatibleBackend:
             1 second to 2, 4 and so on, up to 30 seconds, unless the server says how long to wait
             (Retry-After). Other refusals are not retried, because trying again would not help.
         temperature: the sampling temperature. The default, 0, makes answers as repeatable as
-            the server allows.
+            the server allows. ``None`` leaves the field out of the request, for a model that
+            refuses it, and the model then samples by its own default; the record's
+            ``parameters.temperature`` is then ``None``, so a report shows that none was sent.
         seed: a random seed, for servers that support one.
         max_tokens: a limit on the length of each answer, in tokens. The server's own default
             applies when it is ``None``.
@@ -355,7 +364,7 @@ class OpenAICompatibleBackend:
         api_key_env: str | None = None,
         timeout: float = 60.0,
         max_retries: int = 3,
-        temperature: float = 0.0,
+        temperature: float | None = 0.0,
         seed: int | None = None,
         max_tokens: int | None = None,
         structured_output: bool = True,
@@ -367,7 +376,9 @@ class OpenAICompatibleBackend:
         self.model = _check_model(model)
         self.api_key_env = _check_key_name(api_key_env)
         self.timeout = _check_number("timeout", timeout, minimum=0, inclusive=False)
-        self.temperature = _check_number("temperature", temperature, minimum=0)
+        self.temperature = (
+            None if temperature is None else _check_number("temperature", temperature, minimum=0)
+        )
         self.seed = _check_whole("seed", seed)
         self.max_tokens = _check_whole("max_tokens", max_tokens, minimum=1)
         self.max_retries = _check_whole("max_retries", max_retries, minimum=0)
@@ -396,12 +407,10 @@ class OpenAICompatibleBackend:
         key = self._read_key()  # at call time, so a changed variable takes effect
         headers = {"Authorization": f"Bearer {key}"} if key else {}
         structured = self.structured_output and json_schema is not None
-        body: dict[str, Any] = {
-            "model": self.model,
-            "messages": checked,
-            "temperature": self.temperature,
-            "stream": False,
-        }
+        body: dict[str, Any] = {"model": self.model, "messages": checked}
+        if self.temperature is not None:
+            body["temperature"] = self.temperature
+        body["stream"] = False
         if self.seed is not None:
             body["seed"] = self.seed
         if self.max_tokens is not None:
@@ -512,10 +521,12 @@ class OpenAICompatibleBackend:
                 endpoint=self.endpoint,
                 status=status,
             )
+        about_temperature = bool(_TEMPERATURE_WORD.search(message))
         if (
             status in (400, 404, 422)
             and _MODEL_WORD.search(message)
             and _MISSING_WORDS.search(message)
+            and not about_temperature
         ):
             return BackendError(
                 f'The server at {self.base_url} has no model called "{self.model}" (status '
@@ -537,7 +548,12 @@ class OpenAICompatibleBackend:
                 status=status,
             )
         hint = ""
-        if _SCHEMA_WORDS.search(message):
+        if about_temperature and self.temperature is not None and _REFUSED_WORDS.search(message):
+            hint = (
+                " This model may not take a temperature: create the backend with "
+                "temperature=None, and the field is left out of the request."
+            )
+        elif _SCHEMA_WORDS.search(message):
             hint = (
                 " This server may not support structured output: create the backend with "
                 "structured_output=False, and the expected answer is described in the prompt only."
