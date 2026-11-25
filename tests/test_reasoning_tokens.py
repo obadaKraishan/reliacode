@@ -111,10 +111,10 @@ def test_a_failed_call_has_no_reasoning_count() -> None:
 V1_FILE = FIXTURES / "ledger_v1.jsonl"
 
 
-def test_new_lines_are_version_2() -> None:
+def test_new_lines_are_the_current_version() -> None:
     entry = LedgerEntry.from_response(response(), outcome="answered", text="Invented.", **WORK)
-    assert LEDGER_VERSION == 2
-    assert entry.model_dump(mode="json")["schema_version"] == 2
+    assert LEDGER_VERSION == 3
+    assert entry.model_dump(mode="json")["schema_version"] == 3
 
 
 def test_a_ledger_written_with_version_1_is_still_read() -> None:
@@ -139,5 +139,5 @@ def test_new_lines_can_follow_version_1_lines_in_one_file(tmp_path: Path) -> Non
     backend = FakeBackend(['{"code": "conflict"}', '{"code": "government"}'], tokens=(50, 5))
     code(codebook, ["An invented third text."], backend=backend, ledger=ledger)
     versions = [entry.schema_version for entry in read_ledger(path)]
-    assert versions == [1, 1, 1, 1, 2, 2]
+    assert versions == [1, 1, 1, 1, 3, 3]
     assert ledger.summary().total.calls == 6

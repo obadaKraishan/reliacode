@@ -50,7 +50,7 @@ spread over several lines to be readable; in the file it is a single line:
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "at": "2026-11-19T15:04:05Z",
   "outcome": "answered",
   "variable": "dominant_frame",
@@ -84,7 +84,12 @@ spread over several lines to be readable; in the file it is a single line:
   "prompt_hash": "sha256:496fc7e5326a23fa332fe78c97a30e6db3ac9c2ce5fd837d90e804f16c76ff30",
   "text_hash": "sha256:bae6f67f699680cfbec6973dd1b2c6ebb2e84483c3d37d000f08c8aaee76c44a",
   "text_length": 53,
-  "reasoning_tokens": null
+  "reasoning_tokens": null,
+  "cache_write_tokens": null,
+  "cache_write_1h_tokens": null,
+  "cache_read_tokens": null,
+  "batch_id": null,
+  "custom_id": null
 }
 ```
 

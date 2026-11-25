@@ -800,6 +800,8 @@ class OpenAICompatibleBackend:
         usage = usage if isinstance(usage, dict) else {}
         details = usage.get("completion_tokens_details")
         details = details if isinstance(details, dict) else {}
+        prompt_details = usage.get("prompt_tokens_details")
+        prompt_details = prompt_details if isinstance(prompt_details, dict) else {}
         return Response(
             text=text,
             model=_text_or_none(data.get("model")),
@@ -815,6 +817,7 @@ class OpenAICompatibleBackend:
             attempts=attempts,
             created_at=utc_now(),
             reasoning_tokens=_count(details.get("reasoning_tokens")),
+            cache_read_tokens=_count(prompt_details.get("cached_tokens")),
         )
 
     def _unexpected(self, what: str, answer: httpx.Response, key: str | None) -> BackendError:
