@@ -7,13 +7,22 @@ nothing that the default recipe sends or reports. If one fails, the default prom
 every reported prompt hash would change, which needs a new PROMPT_VERSION and a CHANGELOG entry.
 """
 
+import importlib.util
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 
 from helpers import FIXTURES
-from reliacode import Codebook, FakeBackend, code, load_codebook, parse_codebook
+from reliacode import (
+    Codebook,
+    FakeBackend,
+    OpenAICompatibleBackend,
+    code,
+    load_codebook,
+    parse_codebook,
+)
 from reliacode.coding import (
     INSTRUCTION,
     PROMPT_VERSION,
@@ -98,3 +107,56 @@ def test_an_answer_never_usable_gives_the_same_messages_and_reasons(entry: dict)
     run = code(codebook, {"u1": TEXT}, backend=backend)
     assert backend.calls == entry["missing"]["calls"]
     assert [result.missing_reason for result in run.results] == entry["missing"]["missing_reasons"]
+
+
+# The HTTP requests, recorded with the source of 60410f5 -------------------------------------------
+
+REQUESTS = json.loads((FIXTURES / "default_requests.json").read_text(encoding="utf-8"))
+_spec = importlib.util.spec_from_file_location(
+    "make_request_reference", ROOT / "tests" / "reference" / "make_request_reference.py"
+)
+assert _spec is not None and _spec.loader is not None
+REFERENCE_SCRIPT = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(REFERENCE_SCRIPT)
+
+
+def in_order(body: str) -> object:
+    """A request body with the order of its fields kept, to compare field by field."""
+    return json.loads(body, object_pairs_hook=list)
+
+
+@pytest.mark.parametrize(
+    "pinned", REQUESTS["runs"], ids=lambda run: f"{Path(run['file']).stem}-{run['settings']}"
+)
+def test_the_http_requests_are_the_same_field_for_field_and_in_order(pinned: dict) -> None:
+    sent: list[str] = []
+
+    def server(request: httpx.Request) -> httpx.Response:
+        sent.append(request.content.decode("utf-8"))
+        return REFERENCE_SCRIPT.answer(request)
+
+    backend = OpenAICompatibleBackend(
+        "http://localhost:11434/v1",
+        "reference-model",
+        transport=httpx.MockTransport(server),
+        **REQUESTS["settings"][pinned["settings"]],
+    )
+    run = code(load_codebook(ROOT / pinned["file"]), REQUESTS["texts"], backend=backend)
+    assert run.missing() == ()
+    assert len(sent) == len(pinned["requests"]) == 8
+    assert [in_order(body) for body in sent] == [in_order(body) for body in pinned["requests"]]
+    if httpx.__version__ == REQUESTS["made_with"]["httpx"]:
+        assert sent == pinned["requests"]  # byte for byte, with the same JSON encoder
+
+
+def test_the_request_reference_was_made_with_the_old_source() -> None:
+    assert REQUESTS["made_with"]["source_commit"] == "60410f5e66993eab5de986f812dc679e88ce5c22"
+    assert len(REQUESTS["runs"]) == 4
+    first = in_order(REQUESTS["runs"][0]["requests"][0])
+    assert [name for name, _ in first] == [
+        "model",
+        "messages",
+        "temperature",
+        "stream",
+        "response_format",
+    ]
