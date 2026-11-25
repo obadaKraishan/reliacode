@@ -218,6 +218,7 @@ def test_the_backend_and_coding_records_keep_their_fields() -> None:
         "latency_seconds",
         "attempts",
         "created_at",
+        "reasoning_tokens",
     ]
     assert list(RequestParameters.model_fields) == [
         "endpoint",

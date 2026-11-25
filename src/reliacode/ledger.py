@@ -37,8 +37,10 @@ from reliacode.backends import (
 )
 
 #: Version of the ledger's line format. Every line records the version it was written with,
-#: and a line from a newer version is refused when the file is read.
-LEDGER_VERSION = 1
+#: and a line from a newer version is refused when the file is read. Version 2 added
+#: ``reasoning_tokens`` and the extra request fields (``parameters.extra_body``); lines written
+#: with version 1 are still read, with no reasoning tokens and no extra fields.
+LEDGER_VERSION = 2
 
 #: What came of a call. "answered": the answer could be used. "asked_again": it could not, and
 #: the model was asked again. "missing": it could not, and no try was left. "failed": no answer
@@ -72,8 +74,10 @@ class LedgerEntry(_Record):
 
     The token counts are the ones the server reported, and ``token_source`` is then
     ``"server"``. When the server reported none, the counts are ``None``: never zero and never
-    estimated. A failed call got no answer, so it has no counts, no returned model and no
-    latency, and ``error_reason`` says what kind of problem stopped it.
+    estimated. ``reasoning_tokens`` counts the tokens a model spent reasoning, when the server
+    reports them; they are part of ``completion_tokens``, so costs count them once. A failed
+    call got no answer, so it has no counts, no returned model and no latency, and
+    ``error_reason`` says what kind of problem stopped it.
 
     The line never holds the text that was coded, the model's answer or an API key. The text is
     represented only by ``text_hash`` and ``text_length`` (in characters).
@@ -101,6 +105,7 @@ class LedgerEntry(_Record):
     prompt_hash: str = Field(pattern=_HASH)
     text_hash: str = Field(pattern=_HASH)
     text_length: NonNegativeInt
+    reasoning_tokens: NonNegativeInt | None = None
 
     @field_validator("at")
     @classmethod
@@ -121,7 +126,10 @@ class LedgerEntry(_Record):
 
     @model_validator(mode="after")
     def _consistent(self) -> "LedgerEntry":
-        counted = self.prompt_tokens is not None or self.completion_tokens is not None
+        counted = any(
+            count is not None
+            for count in (self.prompt_tokens, self.completion_tokens, self.reasoning_tokens)
+        )
         if counted and self.token_source is None:
             raise ValueError('token counts need token_source="server", where they came from')
         if not counted and self.token_source is not None:
@@ -162,7 +170,14 @@ class LedgerEntry(_Record):
 
         ``at`` is the time of the call; the answer's own time is used when it is not given.
         """
-        counted = response.prompt_tokens is not None or response.completion_tokens is not None
+        counted = any(
+            count is not None
+            for count in (
+                response.prompt_tokens,
+                response.completion_tokens,
+                response.reasoning_tokens,
+            )
+        )
         return cls(
             at=at if at is not None else response.created_at,
             outcome=outcome,
@@ -183,6 +198,7 @@ class LedgerEntry(_Record):
             prompt_hash=prompt_hash,
             text_hash=hash_text(text),
             text_length=len(text),
+            reasoning_tokens=response.reasoning_tokens,
         )
 
     @classmethod

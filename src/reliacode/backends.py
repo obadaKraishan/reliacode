@@ -115,6 +115,10 @@ class Response(_Record):
     Token counts, ids and the fingerprint are ``None`` when the server did not report them: a
     missing count is never recorded as zero. ``model`` is the model name as the server returned
     it, which can differ from the name that was asked for (``parameters.model``).
+
+    ``reasoning_tokens`` is the number of tokens the model spent reasoning (or thinking) before
+    it answered, when the server reports it (``usage.completion_tokens_details.reasoning_tokens``).
+    In that format they are part of ``completion_tokens``, not added to it.
     """
 
     text: str
@@ -130,6 +134,7 @@ class Response(_Record):
     latency_seconds: float = Field(ge=0)
     attempts: int = Field(default=1, ge=1)
     created_at: datetime
+    reasoning_tokens: NonNegativeInt | None = None
 
     @field_validator("created_at")
     @classmethod
@@ -770,6 +775,8 @@ class OpenAICompatibleBackend:
             raise self._unexpected('the message "content" is not text', answer, key)
         usage = data.get("usage")
         usage = usage if isinstance(usage, dict) else {}
+        details = usage.get("completion_tokens_details")
+        details = details if isinstance(details, dict) else {}
         return Response(
             text=text,
             model=_text_or_none(data.get("model")),
@@ -784,6 +791,7 @@ class OpenAICompatibleBackend:
             latency_seconds=latency,
             attempts=attempts,
             created_at=utc_now(),
+            reasoning_tokens=_count(details.get("reasoning_tokens")),
         )
 
     def _unexpected(self, what: str, answer: httpx.Response, key: str | None) -> BackendError:
