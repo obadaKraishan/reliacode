@@ -21,7 +21,7 @@ import hashlib
 import json
 import logging
 import re
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import datetime
 from typing import Any, Literal, NamedTuple
 
@@ -684,6 +684,82 @@ def code(
             "backend should be a reliacode backend, such as OpenAICompatibleBackend(...) or "
             f"FakeBackend(...), but it is {describe(backend)}."
         )
+    plan = _plan(
+        codebook,
+        texts,
+        variables=variables,
+        attempts=attempts,
+        ledger=ledger,
+        recipe=recipe,
+        rules=rules,
+        backend=backend,
+    )
+    started = utc_now()
+    results: list[CodingResult] = []
+    try:
+        for task in plan.tasks(codebook):
+            while not task.done:
+                task.take(_ask(backend, task.messages, task.work, task.text, task.ask))
+            results.extend(task.results())
+    except BudgetError as error:
+        error.run = plan.run(codebook, results, started)
+        raise
+    return plan.run(codebook, results, started)
+
+
+class _Plan(NamedTuple):
+    """What a run of :func:`code` (or of :func:`reliacode.code_in_batches`) is made of, once
+    every argument is checked."""
+
+    units: list[tuple["UnitId", str]]
+    names: list[str]
+    rules: tuple[Rule, ...]
+    prompts: dict[str, "Prompt | UnitPrompt"]
+    codebook_hash: str
+    ledger: Ledger | None
+    model: str | None
+    recipe: "Recipe"
+    attempts: int
+
+    def tasks(self, codebook: Codebook) -> Iterator["_VariableTask | _UnitTask"]:
+        """One task per text and variable (or per text, for one call per unit), in order."""
+        for unit, text in self.units:
+            if self.recipe == "per_unit":
+                (unit_prompt,) = self.prompts.values()
+                assert isinstance(unit_prompt, UnitPrompt)
+                chosen = tuple(codebook.variable(name) for name in self.names)
+                work = _UnitWork(
+                    chosen, self.rules, unit_prompt, self.codebook_hash, self.ledger, self.model
+                )
+                yield _UnitTask(work, unit, text, self.attempts)
+                continue
+            for name in self.names:
+                prompt = self.prompts[name]
+                assert isinstance(prompt, Prompt)
+                one = _Work(
+                    codebook.variable(name), prompt, self.codebook_hash, self.ledger, self.model
+                )
+                yield _VariableTask(one, unit, text, self.attempts)
+
+    def run(
+        self, codebook: Codebook, results: Sequence["CodingResult"], started: datetime
+    ) -> "CodingRun":
+        return _run(codebook, self.codebook_hash, self.prompts, results, started, self.recipe)
+
+
+def _plan(
+    codebook: Codebook,
+    texts: object,
+    *,
+    variables: Sequence[str] | str | None,
+    attempts: object,
+    ledger: object,
+    recipe: object,
+    rules: Sequence[Rule] | None,
+    backend: object,
+) -> _Plan:
+    """Check the arguments of a run, in the order :func:`code` has always checked them, and
+    build its prompts. A cost limit for a model with no price is refused here."""
     if isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1:
         raise ValueError(
             f"attempts should be a whole number of at least 1, but it is {attempts!r}."
@@ -708,10 +784,10 @@ def code(
     units = _units(texts)
     names = _variable_names(codebook, variables)
     prompts: dict[str, Prompt | UnitPrompt]
+    stated: tuple[Rule, ...] = ()
     if recipe == "per_unit":
         stated = _check_rules(rules, names)
-        unit_prompt = build_unit_prompt(codebook, names, stated)
-        prompts = {"+".join(names): unit_prompt}
+        prompts = {"+".join(names): build_unit_prompt(codebook, names, stated)}
     else:
         prompts = {name: build_prompt(codebook, name) for name in names}
     codebook_hash = codebook.content_hash()
@@ -719,24 +795,7 @@ def code(
     model = model if isinstance(model, str) else None
     if ledger is not None:
         ledger.check_price(model)
-    started = utc_now()
-    results: list[CodingResult] = []
-    try:
-        for unit, text in units:
-            if recipe == "per_unit":
-                chosen = tuple(codebook.variable(name) for name in names)
-                unit_work = _UnitWork(chosen, stated, unit_prompt, codebook_hash, ledger, model)
-                results.extend(_code_unit(backend, unit_work, unit, text, attempts))
-                continue
-            for name in names:
-                prompt = prompts[name]
-                assert isinstance(prompt, Prompt)
-                work = _Work(codebook.variable(name), prompt, codebook_hash, ledger, model)
-                results.append(_code_one(backend, work, unit, text, attempts))
-    except BudgetError as error:
-        error.run = _run(codebook, codebook_hash, prompts, results, started, recipe)
-        raise
-    return _run(codebook, codebook_hash, prompts, results, started, recipe)
+    return _Plan(units, names, stated, prompts, codebook_hash, ledger, model, recipe, attempts)
 
 
 def _run(
@@ -829,139 +888,184 @@ def _outcome(usable: bool, attempt: int, attempts: int) -> Outcome:
     return "asked_again" if attempt < attempts else "missing"
 
 
-def _code_one(
-    backend: Backend, work: _Work, unit: UnitId, text: str, attempts: int
-) -> CodingResult:
-    variable, prompt, ledger = work.variable, work.prompt, work.ledger
-    messages = prompt.messages(text)
-    answers: list[str] = []
-    responses: list[Response] = []
-    problem: str | None = None
-    for attempt in range(1, attempts + 1):
-        response = _ask(backend, messages, work, text, attempt)
-        responses.append(response)
-        answers.append(response.text)
+class _VariableTask:
+    """One text and one variable: the messages to send next, and every answer so far.
+
+    :meth:`take` handles one answer as :func:`code` always has: it checks the answer, records
+    the call in the ledger, and either ends the task or builds the second ask.
+    """
+
+    def __init__(self, work: _Work, unit: UnitId, text: str, attempts: int) -> None:
+        self.work = work
+        self.unit = unit
+        self.text = text
+        self.attempts = attempts
+        self.messages = work.prompt.messages(text)
+        self.ask = 1
+        self.answers: list[str] = []
+        self.responses: list[Response] = []
+        self.done = False
+        self._value: str | None = None
+        self._problem: str | None = None
+
+    def take(self, response: Response, *, record: bool = True) -> None:
+        """Handle the answer to the current ask. ``record=False`` leaves the ledger alone, for
+        an answer whose line is already there."""
+        attempt, work = self.ask, self.work
+        variable, prompt, ledger = work.variable, work.prompt, work.ledger
+        self.responses.append(response)
+        self.answers.append(response.text)
         value, problem, kind = _check(response.text, variable.codes)
-        if ledger is not None:
-            outcome = _outcome(value is not None, attempt, attempts)
+        self._value, self._problem = value, problem
+        if ledger is not None and record:
+            outcome = _outcome(value is not None, attempt, self.attempts)
             ledger.record(
                 LedgerEntry.from_response(
-                    response, outcome=outcome, text=text, ask=attempt, **_ties(work, ledger)
+                    response, outcome=outcome, text=self.text, ask=attempt, **_ties(work, ledger)
                 )
             )
         if value is not None:
-            break
+            self.done = True
+            return
         # Only the kind of problem: an answer can echo the coded text, which may be private.
         logger.info(
             "%s, variable %s: answer %d of %d cannot be used: %s.",
-            _unit_name(unit),
+            _unit_name(self.unit),
             variable.name,
             attempt,
-            attempts,
+            self.attempts,
             kind,
         )
         retry = prompt.retry_template.format(problem=problem, codes=", ".join(variable.codes))
-        messages = [
-            *messages,
+        self.messages = [
+            *self.messages,
             {"role": "assistant", "content": response.text},
             {"role": "user", "content": retry},
         ]
-    else:
-        value = None
-    reason = None
-    if value is None:
-        reason = (
-            f"The answer could not be used. {problem}"
-            if attempts == 1
-            else f"None of the {attempts} answers could be used. The last one: {problem}"
-        )
-    return CodingResult(
-        unit=unit,
-        variable=variable.name,
-        code=value,
-        missing_reason=reason,
-        answers=tuple(answers),
-        responses=tuple(responses),
-        codebook_hash=work.codebook_hash,
-        prompt_hash=prompt.hash,
-    )
+        if attempt == self.attempts:
+            self.done = True
+        else:
+            self.ask += 1
+
+    def results(self) -> list[CodingResult]:
+        value, problem, attempts = self._value, self._problem, self.attempts
+        reason = None
+        if value is None:
+            reason = (
+                f"The answer could not be used. {problem}"
+                if attempts == 1
+                else f"None of the {attempts} answers could be used. The last one: {problem}"
+            )
+        return [
+            CodingResult(
+                unit=self.unit,
+                variable=self.work.variable.name,
+                code=value,
+                missing_reason=reason,
+                answers=tuple(self.answers),
+                responses=tuple(self.responses),
+                codebook_hash=self.work.codebook_hash,
+                prompt_hash=self.work.prompt.hash,
+            )
+        ]
 
 
-def _code_unit(
-    backend: Backend, work: _UnitWork, unit: UnitId, text: str, attempts: int
-) -> list[CodingResult]:
-    """Every variable of one text, from one call (and a second ask if the answer cannot be used
-    as it is). The last answer decides every code."""
-    prompt, ledger = work.prompt, work.ledger
-    messages = prompt.messages(text)
-    answers: list[str] = []
-    responses: list[Response] = []
-    for attempt in range(1, attempts + 1):
-        response = _ask(backend, messages, work, text, attempt)
-        responses.append(response)
-        answers.append(response.text)
+class _UnitTask:
+    """One text with all its variables asked together. The last answer decides every code."""
+
+    def __init__(self, work: _UnitWork, unit: UnitId, text: str, attempts: int) -> None:
+        self.work = work
+        self.unit = unit
+        self.text = text
+        self.attempts = attempts
+        self.messages = work.prompt.messages(text)
+        self.ask = 1
+        self.answers: list[str] = []
+        self.responses: list[Response] = []
+        self.done = False
+        self._checked: _UnitAnswer | None = None
+
+    def take(self, response: Response, *, record: bool = True) -> None:
+        """Handle the answer to the current ask (see :meth:`_VariableTask.take`)."""
+        attempt, work = self.ask, self.work
+        prompt, ledger = work.prompt, work.ledger
+        self.responses.append(response)
+        self.answers.append(response.text)
         try:
             checked = _check_unit(response.text, work.variables, work.rules)
         except Exception:
             # A rule's check failed: the call was made, so it is recorded before the run stops.
-            if ledger is not None:
+            if ledger is not None and record:
                 ledger.record(
                     LedgerEntry.from_response(
-                        response, outcome="missing", text=text, ask=attempt, **_ties(work, ledger)
+                        response,
+                        outcome="missing",
+                        text=self.text,
+                        ask=attempt,
+                        **_ties(work, ledger),
                     )
                 )
             raise
-        if ledger is not None:
-            outcome = _outcome(not checked.problems, attempt, attempts)
+        self._checked = checked
+        if ledger is not None and record:
+            outcome = _outcome(not checked.problems, attempt, self.attempts)
             ledger.record(
                 LedgerEntry.from_response(
-                    response, outcome=outcome, text=text, ask=attempt, **_ties(work, ledger)
+                    response, outcome=outcome, text=self.text, ask=attempt, **_ties(work, ledger)
                 )
             )
         if not checked.problems:
-            break
+            self.done = True
+            return
         # The kinds of problem name variables and codes only, never words of the answer.
         logger.info(
             "%s: answer %d of %d cannot be used as it is: %s.",
-            _unit_name(unit),
+            _unit_name(self.unit),
             attempt,
-            attempts,
+            self.attempts,
             "; ".join(checked.kinds),
         )
-        if attempt < attempts:
+        if attempt < self.attempts:
             retry = prompt.retry_template.format(
                 problems="\n".join(f"- {problem}" for problem in checked.retry),
                 names=", ".join(prompt.variables),
             )
-            messages = [
-                *messages,
+            self.messages = [
+                *self.messages,
                 {"role": "assistant", "content": response.text},
                 {"role": "user", "content": retry},
             ]
-    results = []
-    for variable in work.variables:
-        name = variable.name
-        reason = None
-        if name not in checked.codes:
-            reason = (
-                f"The answer could not be used for this variable. {checked.problems[name]}"
-                if attempts == 1
-                else f"The last of the {attempts} answers could not be used for this variable. "
-                f"{checked.problems[name]}"
+            self.ask += 1
+        else:
+            self.done = True
+
+    def results(self) -> list[CodingResult]:
+        checked, attempts = self._checked, self.attempts
+        assert checked is not None  # only a task that took an answer has results
+        results = []
+        for variable in self.work.variables:
+            name = variable.name
+            reason = None
+            if name not in checked.codes:
+                reason = (
+                    f"The answer could not be used for this variable. {checked.problems[name]}"
+                    if attempts == 1
+                    else f"The last of the {attempts} answers could not be used for this "
+                    f"variable. {checked.problems[name]}"
+                )
+            results.append(
+                CodingResult(
+                    unit=self.unit,
+                    variable=name,
+                    code=checked.codes.get(name),
+                    missing_reason=reason,
+                    answers=tuple(self.answers),
+                    responses=tuple(self.responses),
+                    codebook_hash=self.work.codebook_hash,
+                    prompt_hash=self.work.prompt.hash,
+                )
             )
-        results.append(
-            CodingResult(
-                unit=unit,
-                variable=name,
-                code=checked.codes.get(name),
-                missing_reason=reason,
-                answers=tuple(answers),
-                responses=tuple(responses),
-                codebook_hash=work.codebook_hash,
-                prompt_hash=prompt.hash,
-            )
-        )
-    return results
+        return results
 
 
 def _ties(work: _Work | _UnitWork, ledger: Ledger) -> dict[str, Any]:
